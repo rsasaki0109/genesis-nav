@@ -1,0 +1,37 @@
+scenario_id: bench_runtime_replay_consistency
+seed: 42
+world: examples/worlds/warehouse_small.py
+max_sim_seconds: 30
+agents:
+  - id: robot_001
+    type: diff_drive
+    namespace: /robot_001
+    spawn: [0.0, 0.0, 0.0]
+    frames:
+      map: map
+      odom: robot_001/odom
+      base: robot_001/base_link
+    capabilities:
+      - navigate_2d
+      - stop
+      - report_pose
+    authority:
+      mode: autonomous
+      command_ttl_ms: 200
+tasks:
+  - id: task_001
+    type: navigate_to_pose
+    agent: robot_001
+    goal: [2.0, 1.0, 0.0]
+metrics:
+  - success_rate
+  - sim_steps
+record:
+  rosbag: false
+  events: true
+benchmark:
+  expected:
+    success_rate_min: 1.0
+    sim_steps_min: 200
+    task_succeeded_count_min: 1
+    command_rejection_count_max: 0

@@ -1,0 +1,16 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>genesis_nav_ros</name>
+  <version>0.1.0</version>
+  <description>ROS 2 bridge package for genesis-nav.</description>
+  <maintainer email="maintainers@example.com">genesis-nav contributors</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <exec_depend>genesis_nav_msgs</exec_depend>
+  <exec_depend>rclpy</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

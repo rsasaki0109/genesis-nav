@@ -1,0 +1,12 @@
+---
+description: Documentation contract
+globs:
+  - "docs/**"
+  - "README.md"
+  - "AGENTS.md"
+---
+
+- Keep positioning clear: runtime infrastructure, not a Nav2 clone.
+- Update `docs/decisions.md` for architectural tradeoffs.
+- Update `docs/experiments.md` when benchmark scenarios change.
+- Keep README quickstart under 10 commands.

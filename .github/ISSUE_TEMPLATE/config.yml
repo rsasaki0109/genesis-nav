@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Discussion
+    url: https://github.com/rsasaki0109/genesis-nav/discussions
+    about: For open-ended questions, design talk, or ideas that are not yet a concrete task.

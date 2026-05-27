@@ -1,0 +1,31 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "genesis-nav"
+version = "0.1.0a0"
+description = "ROS 2-native embodied runtime infrastructure for Genesis World"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+authors = [{ name = "genesis-nav contributors" }]
+dependencies = [
+  "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+]
+
+[project.scripts]
+gnav = "genesis_nav.cli.main:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["genesis_nav"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests/unit"]
+pythonpath = ["."]
+addopts = "-q"

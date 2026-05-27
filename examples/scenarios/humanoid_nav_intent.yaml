@@ -1,0 +1,33 @@
+scenario_id: humanoid_nav_intent
+seed: 42
+world: examples/worlds/warehouse_small.py
+agents:
+  - id: humanoid_001
+    type: humanoid
+    namespace: /humanoid_001
+    spawn: [0.0, 0.0, 0.0]
+    frames:
+      map: map
+      odom: humanoid_001/odom
+      base: humanoid_001/base_link
+      pelvis: humanoid_001/pelvis
+      left_foot: humanoid_001/left_foot
+      right_foot: humanoid_001/right_foot
+    capabilities:
+      - navigate_intent
+      - stop
+      - report_pose
+    authority:
+      mode: autonomous
+      command_ttl_ms: 200
+tasks:
+  - id: nav_intent_001
+    type: navigate_to_pose
+    agent: humanoid_001
+    goal: [2.0, 1.0, 0.0]
+metrics:
+  - success_rate
+  - time_to_goal
+record:
+  rosbag: false
+  events: true

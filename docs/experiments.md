@@ -1,0 +1,41 @@
+# Experiments
+
+## Current Baseline
+
+| Date | Scenario | Commit | Result | Notes |
+|---|---|---|---|---|
+| 2026-05-28 | `examples/scenarios/smoke.yaml` | pending | success_rate=1.0, time_to_goal≈5.3s, path≈2.14m, 265 sim steps | Single diff-drive agent navigates to `(2, 1, 0)` via in-memory kinematics fallback. |
+| 2026-05-28 | `examples/scenarios/warehouse_10_agents.yaml` | pending | success_rate=1.0 over 3 tasks, time_to_goal_mean≈11.4s, 568 sim steps | 10 spawned diff-drive agents with 3 assigned tasks; no collision modelling yet. |
+| 2026-05-28 | `examples/scenarios/smoke.yaml --ros` | pending | success_rate=1.0, time_to_goal≈5.3s, 265 sim steps, bridge publishes 6+N topics | ROS 2 bridge enabled; `/clock`, `/genesis_nav/events`, per-agent `/state` and `/odom`, tf, tf_static visible while events flow to JSONL and topic. |
+| 2026-05-28 | `examples/scenarios/smoke.yaml --backend genesis` | pending | aborts with install hint when Genesis is missing | Confirms `gnav doctor` and the CLI surface report Genesis availability before runtime startup. Run on a host with Genesis to record the in-Genesis baseline. |
+| 2026-05-28 | `examples/scenarios/warehouse_10_agents.yaml --fast` (post-dispatcher) | pending | success_rate=1.0 over 3 tasks via dispatcher, task_dispatched_count=3, task_pending_peak=3, 568 sim steps | All tasks flow through `submit_task → dispatcher → assign_task`; reservation counters stay 0 because the scenario declares no shared resources. |
+| 2026-05-28 | `examples/scenarios/smoke.yaml --fast` (post-J: env+replay strict) | pending | env.json populated (python/platform/git/ros_distro/genesis_version), replay strict ok with `--print-events` streaming SCENARIO_STARTED→TASK_ASSIGNED→TASK_STARTED→TASK_SUCCEEDED→SCENARIO_FINISHED | Confirms Workstream J run-directory contract: env metadata captured, replay refuses missing artifacts / corrupt events / metrics without required keys. |
+| 2026-05-28 | `gnav bench --run benchmarks/{nav_basic,multi_agent,runtime,humanoid}` | pending | 4 suites, 1 scenario each, all green: nav_basic 1/1 (sr=1.0, ttg≈5.3s), multi_agent 1/1 (4 succeeded), runtime 1/1 (sim_steps=265), humanoid 1/1 | First Workstream K harness pass. Reports under `benchmarks/_runs/<suite>_report.json` each list `run_dir` for failure debug. |
+| 2026-05-28 | `examples/scenarios/smoke.yaml --fast` (post-H: navigation MVP) | pending | success_rate=1.0, BEHAVIOR_STATE_CHANGED stream idle→assigned→planning→executing→succeeded→idle, PLAN_RESOLVED carries planner+waypoint_count, stuck/recovery counters present in metrics.json | Confirms Workstream H wiring: `StraightLinePlanner` fallback, behavior state machine emitted alongside task lifecycle, no regressions in the 94 pre-H tests. |
+| 2026-05-28 | Stuck-and-recover unit test (`tests/unit/test_navigation_mvp.py::test_stuck_detector_triggers_recovery_then_fails`) | pending | AGENT_STUCK fires once, behavior transitions executing→recovering→executing→failed→idle, TASK_FAILED reason="stuck" | First end-to-end exercise of the new recovery loop. `stuck_window_sec=0.5`, `max_recovery_retries=1`. |
+| 2026-05-28 | Workstream N — docs and launch surface (no runtime change) | pending | CONTRIBUTING.md + 5 new issue templates + good-first-issues catalogue + comparison table + demo / launch scripts shipped; no rerun of smoke required | `gnav run` and `gnav bench` outputs unchanged; verified by inspection that no `genesis_nav/`, `ros2_ws/`, or `tests/` source files were touched. |
+
+## Failed Experiments
+
+No failed experiments recorded yet.
+
+## Known Flaky Scenarios
+
+No flaky scenarios recorded yet.
+
+## Reproduction Commands
+
+```bash
+gnav run examples/scenarios/smoke.yaml --fast --record
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest tests/unit
+
+# ROS 2 bridge end-to-end
+source /opt/ros/jazzy/setup.bash
+colcon build --base-paths ros2_ws/src --packages-select genesis_nav_msgs genesis_nav_ros genesis_nav_bringup
+source ros2_ws/install/setup.bash
+gnav run examples/scenarios/smoke.yaml --fast --ros
+```
+
+## Benchmark History
+
+Benchmark history starts once v0.1 scenario execution is wired to Genesis.

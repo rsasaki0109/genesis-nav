@@ -1,0 +1,8 @@
+topics:
+  - /clock
+  - /tf
+  - /tf_static
+  - /genesis_nav/events
+  - /genesis_nav/fleet_state
+  - /robot_001/state
+  - /robot_001/cmd_vel

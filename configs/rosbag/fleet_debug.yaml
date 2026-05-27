@@ -1,0 +1,10 @@
+topics:
+  - /clock
+  - /tf
+  - /tf_static
+  - /genesis_nav/events
+  - /genesis_nav/fleet_state
+  - /genesis_nav/scenario_state
+  - /robot_*/state
+  - /robot_*/task_status
+  - /robot_*/diagnostics

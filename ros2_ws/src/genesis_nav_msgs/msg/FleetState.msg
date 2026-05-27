@@ -1,0 +1,7 @@
+std_msgs/Header header
+string mode
+uint32 agent_count
+uint32 pending_task_count
+uint32 active_task_count
+uint32 completed_task_count
+string state_json

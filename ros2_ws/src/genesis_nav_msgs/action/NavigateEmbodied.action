@@ -1,0 +1,17 @@
+string task_id
+string agent_id
+geometry_msgs/PoseStamped goal
+string map_id
+string behavior_profile
+string[] constraints
+---
+bool success
+string error_code
+string message
+float32 duration_sec
+float32 path_length
+---
+string state
+geometry_msgs/PoseStamped current_pose
+float32 distance_remaining
+string active_behavior

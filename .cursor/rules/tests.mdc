@@ -1,0 +1,11 @@
+---
+description: Test expectations
+globs:
+  - "genesis_nav/**"
+  - "tests/**"
+---
+
+- Add unit tests for core runtime behavior.
+- Add scenario tests for reproducibility or CLI behavior.
+- Command safety, stale rejection, and event logging need focused tests.
+- Prefer deterministic seeds in all scenario fixtures.

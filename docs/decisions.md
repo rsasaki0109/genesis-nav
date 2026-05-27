@@ -1,0 +1,361 @@
+# Decisions
+
+## 2026-05-28: Position genesis-nav as runtime infrastructure
+
+Context:
+Genesis World provides the simulation substrate. ROS 2, Nav2, Autoware, and
+Open-RMF already cover adjacent layers.
+
+Decision:
+Build `genesis-nav` as ROS 2-native embodied runtime infrastructure for Genesis
+World, not as a Nav2 clone, RL framework, VLA framework, or demo wrapper.
+
+Consequences:
+Runtime, replay, observability, multi-agent support, and real-robot deployment
+interfaces are core from the first version.
+
+## 2026-05-28: Use ROS 2 namespaces for agent isolation in v0.1
+
+Context:
+Multi-agent support is required early, but DDS-domain partitioning adds
+deployment complexity.
+
+Decision:
+Use one `ROS_DOMAIN_ID` with per-agent namespaces for v0.1.
+
+Consequences:
+RViz, rosbag, and local development stay simple. Large-fleet networking and
+multi-host topologies will be revisited later.
+
+## 2026-05-28: Run the ROS 2 bridge in-process inside `gnav run`
+
+Context:
+The v0.1 bridge could be either a standalone `rclpy` node or an in-process
+component embedded in the runtime loop. A standalone node would mean writing
+its own clock/event consumer and either polling the runtime state via IPC or
+duplicating the loop.
+
+Decision:
+Embed `RosBridge` in `gnav run --ros` so it shares the runtime clock, registry,
+command gate, and event sink directly. The bridge implements the `EventSink`
+protocol and is fanned out alongside the JSONL writer. The marker package
+`genesis_nav_ros` exists only so other ROS 2 packages can express a build/exec
+dependency on the bridge boundary; the implementation lives in the Python
+package `genesis_nav.ros`.
+
+Consequences:
+No IPC layer is needed for v0.1. The trade-off is that `--ros` requires the
+runtime to be launched from a process where `rclpy` and `genesis_nav_msgs` are
+importable. A standalone bridge node is left as a v0.2 option if remote
+inspection becomes a requirement.
+
+## 2026-05-28: External `/cmd_vel` must traverse `CommandGate`
+
+Context:
+ROS 2 teleop tools, joysticks, and other operator paths publish to
+`/<agent>/cmd_vel`. If the bridge applied these directly to the embodiment
+adapter, the runtime would lose the AI/AUTONOMY/SAFETY/TELEOP arbitration
+contract and the freshness / E-stop checks.
+
+Decision:
+The bridge converts each incoming `Twist` into a `RuntimeCommand` stamped with
+`AuthorityMode.TELEOP`, `source="ros_cmd_vel"`, and the current sim time, then
+calls `CommandGate.evaluate` before invoking
+`Runtime.apply_external_command`. Rejected commands emit `COMMAND_REJECTED`
+runtime events; accepted commands emit `COMMAND_ACCEPTED`.
+
+Consequences:
+Teleop commands can override autonomy when they arrive faster than the
+controller can re-issue, which matches operator expectations. AI agents still
+cannot drive actuators because the gate rejects `AuthorityMode.AI` velocity
+commands by default.
+
+## 2026-05-28: World files own Genesis imports; Runtime stays Genesis-free
+
+Context:
+`Runtime` and the scenario loader must remain importable in environments where
+Genesis is not installed (CI for the core Python package, contributors using
+the fallback diff-drive integrator). At the same time we need a single,
+documented place for Genesis-specific imports so the rest of the codebase does
+not grow conditional `import genesis` blocks.
+
+Decision:
+The scenario `world` field points to a Python module that defines
+`build_scene(seed)` and `spawn_diff_drive(scene, spec)`. World modules import
+`genesis` lazily inside these functions. The Runtime never imports Genesis
+directly; it receives an `EmbodimentAdapter` per agent through the
+`adapter_factory` hook on `Runtime.from_scenario`. The CLI selects between
+backends via `--backend fallback|genesis`.
+
+Consequences:
+Adding new worlds is a single-file change. Adding new backends is a new
+factory + adapter pair under `genesis_nav/<backend>/`. Genesis API churn is
+contained to `genesis_nav/genesis/` and the world files.
+
+## 2026-05-28: Nearest-fit dispatch + leave-in-queue retry for unmatched tasks
+
+Context:
+The v0.1 fleet needs to match tasks to agents without committing to a full
+MAPF solver. Tasks may arrive with explicit `agent_id`, with a capability
+filter, or with a `nearest_to` hint.
+
+Decision:
+The dispatcher uses a three-step strategy: (1) honor explicit `agent_id` if
+the agent is free, (2) filter by `capabilities`, (3) pick the candidate with
+the smallest Euclidean distance to `nearest_to` (defaulting to the task goal
+when `nearest_to` is omitted). Tasks that cannot be matched right now are
+re-queued at the head so they get another chance on the next tick instead of
+failing immediately.
+
+Consequences:
+Behavior is deterministic and easy to reason about. Future MAPF/Open-RMF
+adapters can replace the dispatcher without touching the queue or the runtime
+state machine.
+
+## 2026-05-28: Resources are lease-managed; runtime owns release on task end
+
+Context:
+Shared resources (narrow aisles, charging docks) must be reservable but must
+not leak leases if an agent's task ends or fails mid-flight.
+
+Decision:
+The Runtime tracks active leases per agent in `_leases_by_agent`. On
+`TASK_SUCCEEDED` and `TASK_FAILED` (including timeout failures), every lease
+held by that agent is released through `release_resource`, which emits a
+`RESOURCE_RELEASED` event. Unknown resource IDs are rejected before they
+reach the manager so scenario typos surface immediately.
+
+Consequences:
+Resource ownership matches task lifetime without operator intervention. The
+metrics expose `reservation_granted_count`, `reservation_conflict_count`, and
+`reservation_released_count` so deadlock-style scenarios produce a
+machine-readable signal.
+
+## 2026-05-28: AI tool API is the only Python surface AI agents may use
+
+Context:
+AI agents need a way to operate the runtime (submit tasks, pause/resume
+agents, query state, read recent events) without bypassing the
+authority arbitration that protects actuators. Letting them touch
+`Runtime.apply_external_command`, the registry, or the event sink directly
+would defeat the safety contract.
+
+Decision:
+`genesis_nav.agent.AgentToolApi`, constructed via `Runtime.tool_api`, is the
+sole supported entry point for AI agents. It exposes read-only snapshots
+(`AgentSnapshot`, `WorldSnapshot`, `TaskSnapshot`) and four write methods
+(`submit_task`, `pause_agent`, `resume_agent`, `stop_all`). Every write
+requires a non-empty `requester_id`; `submit_task` auto-stamps a UUID4
+`trace_id` if the caller omits one. `submit_task` routes through
+`Runtime.submit_task`, so it still passes the dispatcher and the command
+gate. Pause/resume/stop operate via `AgentRegistry.emergency_stop`, which
+the step loop already honors. All AI-originated events carry
+`data.source = "ai_tool_api"` plus the `requester_id`.
+
+Consequences:
+There is one place to audit AI-agent safety. New AI capabilities must be
+added here or rejected. Direct registry mutation by AI tools is a contract
+violation. The runtime can grow new entry points without renegotiating the
+safety boundary.
+
+## 2026-05-28: Use an in-memory ring buffer for `get_recent_events`
+
+Context:
+`get_recent_events` needs to be cheap (AI agents may call it frequently
+during deliberation) and must not require re-reading or tailing
+`events.jsonl`. A full event database is overkill for v0.1.
+
+Decision:
+`RingBufferEventSink` is a capacity-bounded `deque` registered alongside
+`JsonlEventWriter` in the runtime's `FanoutEventSink`. Default capacity is
+2048 events in the CLI, configurable per construction. `AgentToolApi`
+filters the buffer by `event` / `agent_id` / `task_id` / `since_ts` and
+returns the most recent matches up to `limit`. The JSONL file remains the
+durable record.
+
+Consequences:
+The tail query is O(capacity) and runs in-process, so it is fast even for
+fleets that generate many events per tick. Older events fall off; agents
+that need historical replay should read `events.jsonl` or query a future
+trace store instead.
+
+## 2026-05-28: Humanoid v0.1 is a navigation-intent shell, not a locomotion stack
+
+Context:
+Humanoid agents need to appear in scenarios so that frame conventions, fleet
+plumbing, ROS interfaces, and the safety-stop pipeline can be exercised. A
+real whole-body controller (gait, balance, footstep planning) is out of scope
+for v0.1 and would dwarf the rest of the runtime.
+
+Decision:
+The humanoid agent type uses `HumanoidIntentAdapter`, which treats incoming
+velocity commands as *base-frame navigation intent* and integrates the
+pelvis-projected base pose with the same planar kinematics as
+`DiffDriveKinematics`. It carries `fall_detected` / `balance_margin` /
+`fall_reason` so the runtime can poll for safety conditions. `FrameSpec`
+gains optional `pelvis`, `left_foot`, and `right_foot` fields used by
+humanoid scenarios only.
+
+The runtime polls every adapter once per tick. On the rising edge of
+`fall_detected` it emits `FALL_DETECTED` (the observation) and
+`SAFETY_STOP` with `reason="fall_detected"` (the action), then sets
+`emergency_stopped=True` to reuse the existing per-task stop branch. No new
+emergency-stop code path is introduced.
+
+Consequences:
+The shell is honest: the README and `docs/humanoid.md` explicitly say it
+does not simulate gait, balance, or whole-body control. When a real
+locomotion adapter is added (Genesis-backed or otherwise), it only needs to
+expose the same `fall_detected` signal — no runtime changes are required.
+
+## 2026-05-28: Run-directory is the single source of truth for replay
+
+Context:
+Reproducibility for v0.1 needs scenario, host environment, event log, and
+metrics in one place. A separate trace database, remote store, or DB would
+add deployment burden without buying anything until v0.2.
+
+Decision:
+Every `gnav run` writes a self-describing directory containing
+`scenario.yaml`, `resolved_config.yaml`, `env.json` (git sha/branch/dirty,
+ROS distro, Genesis version, Python version, hostname, platform, backend,
+mode), `events.jsonl`, `metrics.json`, `report.md`, plus optional
+`qos_profile.yaml` (under `--ros`) and `rosbag/` (under `--record`).
+`gnav replay` parses these directly: it requires every artifact, refuses
+malformed `events.jsonl`, requires `SCENARIO_STARTED`/`SCENARIO_FINISHED`
+at both ends, and verifies `metrics.json` carries the documented keys.
+`--print-events` reads the same file to stream the task and safety
+lifecycle.
+
+Consequences:
+The runtime never depends on a remote service to be "replayable"; a run
+directory is sufficient evidence. Adding a future event-replay loop or
+trace store is additive — the on-disk format is already the contract.
+
+## 2026-05-28: Benchmarks are scenario + expectation, run via `gnav bench --run`
+
+Context:
+Benchmarks must be regression harnesses first. A separate benchmark
+runner with its own scheduler, fixtures, and metrics pipeline would
+fragment the runtime contract — every benchmark would need to
+reimplement the things `gnav run` already provides (env capture, event
+log, replay artifact, metrics.json).
+
+Decision:
+A benchmark is a normal scenario YAML with an optional top-level
+`benchmark.expected` block. `gnav bench --run <suite_dir>` discovers
+`*.yaml` files, executes each through the same code path as `gnav run`
+under `--fast`, and evaluates the predicates against `metrics.json`.
+The aggregated report (`benchmarks/_runs/<suite>_report.json`) lists
+failures next to the `run_dir` so failures point straight at the replay
+artifact.
+
+Consequences:
+There is exactly one runtime code path; benchmarks cannot drift from
+production behaviour. Adding a benchmark is a one-file change and a
+predicate. Failing benchmarks are debuggable with the same
+`gnav replay` machinery as ordinary runs. A future "real" benchmark
+runner can wrap this command without forking the runtime.
+
+## 2026-05-28: Behavior state machine is orthogonal to TaskStatus
+
+Context:
+The runtime needs to expose what each agent is doing right now (planning,
+chasing waypoints, waiting after a stuck event, recovering) so replays and
+RViz panels can show navigation behavior. Overloading `TaskStatus` with these
+nuances would tie task-side reporting to runtime-side scheduling and make
+the AI tool API harder to reason about.
+
+Decision:
+Introduce a `BehaviorState` enum tracked on `AgentState.behavior_state`
+(`idle / assigned / planning / reserving / executing / recovering /
+succeeded / failed`). `TaskStatus` keeps its existing meaning ("what is
+the status of this task?") while `BehaviorState` answers "what is the agent
+doing right now in service of that task?". Every transition emits a
+`BEHAVIOR_STATE_CHANGED` runtime event carrying `from`, `to`, and `reason`.
+The legal transitions are encoded in
+`genesis_nav.navigation.behavior.can_transition`; the runtime refuses to
+publish events that violate the machine.
+
+Consequences:
+RViz, ROS bridge consumers, and replay tooling get a deterministic stream
+of behavior transitions. The AI tool API can read `behavior_state` without
+having to derive it from event traces. Future locomotion or planning
+extensions slot in by emitting new transitions inside the same vocabulary
+instead of inventing parallel status fields.
+
+## 2026-05-28: Static occupancy grid + GridAStarPlanner for v0.1
+
+Context:
+The v0.1 navigation MVP needs to demonstrate planning around obstacles
+without depending on Nav2 or a costmap layer. A separate planner package
+or plugin system would burn the budget the workstream actually buys.
+
+Decision:
+Scenarios may declare a top-level `occupancy_grid` block. When present, the
+runtime constructs a `GridAStarPlanner` (8-connected A*, Octile heuristic,
+no diagonal corner-cutting through blocked cells). When absent, the
+runtime falls back to `StraightLinePlanner`. The planner runs once per
+task on the `ASSIGNED -> PLANNING -> EXECUTING` transition; the controller
+chases the resulting waypoint queue with a fixed `waypoint_tolerance_m`.
+
+Consequences:
+Workstream H ships a single, debuggable planning path. Dynamic obstacles,
+costmaps, and incremental replanning are deferred. The on-disk grid format
+is small enough that benchmark scenarios can describe non-trivial maps in
+YAML, and replays remain reproducible because the grid is checked into the
+scenario alongside `seed` and `agents`.
+
+## 2026-05-28: Keep Genesis-specific code behind a thin adapter
+
+Context:
+Genesis APIs are expected to evolve quickly.
+
+Decision:
+Keep Genesis-specific imports and API calls under `genesis_nav/genesis/`. Core
+runtime modules must be unit-testable without Genesis installed.
+
+Consequences:
+The runtime can stabilize its own contracts while tracking Genesis changes in a
+smaller adapter surface.
+
+## 2026-05-28: Curated good-first-issues list lives in docs, not just GitHub
+
+Context:
+GitHub issues are the operational backlog, but the list churns and historic
+"good first" labels rot quickly. New contributors landing on the repo need a
+stable answer to "where do I start?" that the maintainers update intentionally.
+
+Decision:
+Maintain a curated catalogue of ten concrete starter tasks in
+`docs/good_first_issues.md`. Each entry names files, size estimate, and the
+matching issue template. The corresponding GitHub issues are filed from this
+list rather than the other way around; if a list entry no longer applies, we
+edit the doc in the same PR that fixes the underlying state.
+
+Consequences:
+New contributors get a predictable starting surface that survives label drift,
+and we have a single place to audit whether the project still has friendly
+on-ramps. The cost is that the list must be reviewed each minor release —
+stale entries become a credibility problem faster than missing entries.
+
+## 2026-05-28: Public comparison table lives in README, not a separate page
+
+Context:
+"How does this compare to Nav2 / Isaac Lab / Gazebo / raw Genesis?" is the
+first question newcomers ask. A separate `docs/comparison.md` would let it
+grow longer, but a comparison hidden behind a click loses its job — it has
+to anchor expectations before someone reads any code.
+
+Decision:
+Keep a single short comparison table in `README.md` covering ROS 2-native
+runtime, multi-agent scenarios, replayable artifacts, benchmark predicates,
+AI safety boundary, and real-robot path. Expand individual rows only when
+the deeper discussion fits naturally in an existing doc (e.g., the Nav2
+boundary lives in this ADR file; the AI surface lives in `docs/ai_agents.md`).
+
+Consequences:
+The table stays opinionated and short. We accept that it cannot answer every
+nuance — that is what the linked docs are for. If the table grows past about
+eight rows or starts hedging, that is a signal to split it out and re-open
+this ADR.

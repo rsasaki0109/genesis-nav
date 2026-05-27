@@ -1,0 +1,7 @@
+string requester_id
+string resource_id
+builtin_interfaces/Duration duration
+---
+bool accepted
+string lease_id
+string reason

@@ -1,0 +1,14 @@
+topics:
+  /clock:
+    reliability: reliable
+    durability: transient_local
+  /robot_*/scan:
+    reliability: best_effort
+    durability: volatile
+  /robot_*/cmd_vel:
+    reliability: reliable
+    durability: volatile
+    deadline_ms: 100
+  /genesis_nav/events:
+    reliability: reliable
+    durability: volatile

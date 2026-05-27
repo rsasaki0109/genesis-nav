@@ -1,0 +1,55 @@
+scenario_id: warehouse_10_agents
+seed: 42
+world: examples/worlds/warehouse_small.py
+agents:
+  - id: robot_001
+    type: diff_drive
+    spawn: [0.0, 0.0, 0.0]
+  - id: robot_002
+    type: diff_drive
+    spawn: [1.0, 0.0, 0.0]
+  - id: robot_003
+    type: diff_drive
+    spawn: [2.0, 0.0, 0.0]
+  - id: robot_004
+    type: diff_drive
+    spawn: [3.0, 0.0, 0.0]
+  - id: robot_005
+    type: diff_drive
+    spawn: [4.0, 0.0, 0.0]
+  - id: robot_006
+    type: diff_drive
+    spawn: [5.0, 0.0, 0.0]
+  - id: robot_007
+    type: diff_drive
+    spawn: [6.0, 0.0, 0.0]
+  - id: robot_008
+    type: diff_drive
+    spawn: [7.0, 0.0, 0.0]
+  - id: robot_009
+    type: diff_drive
+    spawn: [8.0, 0.0, 0.0]
+  - id: robot_010
+    type: diff_drive
+    spawn: [9.0, 0.0, 0.0]
+tasks:
+  - id: task_001
+    type: navigate_to_pose
+    agent: robot_001
+    goal: [5.0, 3.0, 1.57]
+  - id: task_002
+    type: navigate_to_pose
+    agent: robot_002
+    goal: [6.0, 3.0, 1.57]
+  - id: task_003
+    type: navigate_to_pose
+    agent: robot_003
+    goal: [7.0, 3.0, 1.57]
+metrics:
+  - success_rate
+  - collision_count
+  - time_to_goal
+  - min_inter_agent_distance
+record:
+  rosbag: true
+  events: true
