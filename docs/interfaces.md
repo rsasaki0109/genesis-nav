@@ -217,6 +217,7 @@ Known event names:
 - `NEAR_MISS`
 - `AGENT_STUCK`
 - `STUCK_RECOVERED`
+- `OBSTACLE_CHANGED`
 - `REPLAN_TRIGGERED`
 - `SIM_RESET`
 - `SCENARIO_STARTED`
@@ -235,7 +236,7 @@ is the task-side view (assigned / executing / succeeded / failed);
 | `assigned` | Task assigned, not yet planned. |
 | `planning` | Planner is producing a path. |
 | `reserving` | Reserved for resource lease holds (not exercised in v0.1). |
-| `executing` | Following the planned waypoints. |
+| `executing` | Following the planned waypoints. May re-enter `planning` to replan when a dynamic obstacle blocks the remaining path. |
 | `recovering` | Stuck; holding still for `recovery_wait_sec` before retrying. |
 | `succeeded` | Final pose reached; transition to `idle` immediately. |
 | `failed` | Planner could not produce a path, stuck retries exhausted, or task timed out; transition to `idle` immediately. |
@@ -253,6 +254,26 @@ is the task-side view (assigned / executing / succeeded / failed);
 `PLAN_RESOLVED` carries `waypoint_count` and `planner` (class name).
 `PLAN_FAILED` carries the goal and a `reason` string. `AGENT_STUCK` carries
 `progress_m`, `window_sec`, and the 1-indexed `retry` count.
+`OBSTACLE_CHANGED` carries `blocked_cells` (a list of `[col, row]`) applied to
+the grid at that timestamp. `REPLAN_TRIGGERED` carries `waypoint_count` and a
+`reason` (e.g. `obstacle`); it is emitted between an `executing → planning`
+and a `planning → executing` `BEHAVIOR_STATE_CHANGED` pair.
+
+### Dynamic Obstacles
+
+Scenarios with an `occupancy_grid` may declare timestamped grid deltas. Each
+delta blocks cells at its `at_sec` sim time; executing agents whose remaining
+path crosses a newly blocked cell replan around it (or fail with
+`reason="blocked"` if no path remains). Deltas are recorded as
+`OBSTACLE_CHANGED` events so a replay reconstructs the obstacle timeline from
+the run directory alone (see the 2026-05-29 dynamic-obstacles ADR).
+
+```yaml
+dynamic_obstacles:
+  events:
+    - at_sec: 2.0
+      block: [[3, 1], [3, 2]]   # [col, row] cells
+```
 
 ## Scenario Schema
 

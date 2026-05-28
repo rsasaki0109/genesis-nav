@@ -74,6 +74,31 @@ class OccupancyGrid:
         y = self.origin_y + (row + 0.5) * self.resolution
         return x, y
 
+    def with_blocked(
+        self, cells: Sequence[tuple[int, int]]
+    ) -> "OccupancyGrid":
+        """Return a new grid with ``cells`` (``(col, row)``) marked blocked.
+
+        Out-of-bounds cells are ignored. The original grid is unchanged so a
+        replay can reconstruct the exact obstacle timeline by re-applying the
+        recorded deltas in order.
+        """
+
+        block = {(c, r) for c, r in cells if self.in_bounds(c, r)}
+        if not block:
+            return self
+        rows = [list(row) for row in self.data]
+        for col, row in block:
+            rows[row][col] = True
+        return OccupancyGrid(
+            width=self.width,
+            height=self.height,
+            resolution=self.resolution,
+            origin_x=self.origin_x,
+            origin_y=self.origin_y,
+            data=tuple(tuple(r) for r in rows),
+        )
+
 
 _NEIGHBOURS: tuple[tuple[int, int, float], ...] = (
     (1, 0, 1.0),
@@ -118,6 +143,21 @@ class GridAStarPlanner:
             waypoints.append((wx, wy, 0.0))
         waypoints.append(goal)
         return _simplify(waypoints)
+
+    def replan(
+        self,
+        start: tuple[float, float, float],
+        goal: tuple[float, float, float],
+    ) -> list[tuple[float, float, float]]:
+        """Re-plan against the current grid.
+
+        Identical to :meth:`plan` for this planner because A* is stateless; the
+        runtime swaps in an updated grid before calling. The separate verb
+        keeps the planner contract honest for backends that can replan
+        incrementally (see the 2026-05-29 dynamic-obstacles ADR).
+        """
+
+        return self.plan(start, goal)
 
 
 class PlannerError(RuntimeError):

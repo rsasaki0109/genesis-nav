@@ -40,6 +40,7 @@ _ALLOWED: dict[BehaviorState, frozenset[BehaviorState]] = {
     ),
     BehaviorState.EXECUTING: frozenset(
         {
+            BehaviorState.PLANNING,
             BehaviorState.RECOVERING,
             BehaviorState.SUCCEEDED,
             BehaviorState.FAILED,
