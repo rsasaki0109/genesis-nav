@@ -140,3 +140,18 @@ def test_nav2_selector_uses_bridge(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     with JsonlEventWriter(tmp_path / "e.jsonl") as events:
         runtime = Runtime.from_scenario(scenario, events)
     assert runtime.planner is sentinel
+
+
+def test_cli_reports_nav2_unavailable_cleanly(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from genesis_nav.cli.main import main
+    from genesis_nav.nav2.bridge import Nav2NotAvailableError
+
+    def _boom(scenario):  # noqa: ANN001
+        raise Nav2NotAvailableError("rclpy / nav2_msgs are not importable.")
+
+    monkeypatch.setattr("genesis_nav.nav2.bridge.build_nav2_planner", _boom)
+    scenario_path = _scenario(tmp_path, planner="nav2", grid=False)
+    code = main(["run", str(scenario_path), "--fast", "--output-dir", str(tmp_path / "runs")])
+    assert code == 4  # clean exit, not an uncaught traceback

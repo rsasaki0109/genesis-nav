@@ -175,9 +175,18 @@ def run_command(args: argparse.Namespace) -> int:
             adapter_factory = genesis_backend.spawn
         elif robot_backend is not None:
             adapter_factory = robot_backend.spawn
-        runtime = Runtime.from_scenario(
-            scenario, event_sink, adapter_factory=adapter_factory
-        )
+        from genesis_nav.nav2.bridge import Nav2NotAvailableError
+
+        try:
+            runtime = Runtime.from_scenario(
+                scenario, event_sink, adapter_factory=adapter_factory
+            )
+        except Nav2NotAvailableError as exc:
+            print(
+                f"runtime.navigation.planner: nav2 unavailable: {exc}",
+                file=sys.stderr,
+            )
+            return 4
         tool_api = runtime.tool_api(
             scenario_id=scenario.scenario_id, event_buffer=event_buffer
         )
