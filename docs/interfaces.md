@@ -167,6 +167,39 @@ The adapter exposes a command-staleness watchdog (`seconds_since_command`,
 automatic runtime poll wiring is a v0.2 follow-up; today it is driven by the
 transport's node timer or an explicit caller.
 
+## Planner Backends
+
+The planner is selected by `runtime.navigation.planner`:
+
+```yaml
+runtime:
+  navigation:
+    planner: auto   # auto | grid | straight | nav2
+```
+
+- `auto` (default) — grid A* if the scenario declares an `occupancy_grid`,
+  else straight line. Matches v0.1 behaviour.
+- `grid` — force `GridAStarPlanner` (errors if no `occupancy_grid`).
+- `straight` — force `StraightLinePlanner`.
+- `nav2` — delegate global planning to a running Nav2 stack (see the
+  2026-05-29 Nav2 ADR). genesis-nav stays the runtime/arbiter; `Nav2Planner`
+  implements the same `plan()` contract and bridges to a `ComputePathToPose`
+  action behind `genesis_nav.nav2.Nav2PathService`. `FakeNav2PathService`
+  makes it unit-testable without ROS 2. Optional scenario block:
+
+  ```yaml
+  nav2:
+    compute_path_action: compute_path_to_pose
+    frame_id: map
+    timeout_sec: 5.0
+  ```
+
+  A `nav2` run is only as reproducible as the external stack; recording the
+  Nav2 distro/version in `env.json` and marking `nav2` benchmark scenarios as
+  integration-only are documented follow-ups (see the Nav2 ADR). This slice
+  delegates global planning only; routing Nav2's controller `cmd_vel` through
+  `CommandGate` as an `AUTONOMY` command is a follow-up.
+
 ## World File Contract
 
 Scenario `world` fields point to a Python module that defines:

@@ -173,8 +173,8 @@ class Runtime:
                         agent_id=spec.agent_id, x=spawn[0], y=spawn[1], yaw=spawn[2]
                     )
         resources = ResourceCatalog.from_scenario(scenario.raw)
-        planner = build_planner(scenario.raw) or StraightLinePlanner()
         navigation_config = NavigationConfig.from_scenario_raw(scenario.raw)
+        planner = cls._select_planner(scenario, navigation_config)
         obstacle_source = build_obstacle_source(scenario.raw)
         return cls(
             registry=registry,
@@ -187,6 +187,32 @@ class Runtime:
             navigation_config=navigation_config,
             obstacle_source=obstacle_source,
         )
+
+    @staticmethod
+    def _select_planner(scenario: Scenario, navigation_config: NavigationConfig):  # type: ignore[no-untyped-def]
+        """Choose the planner backend from ``runtime.navigation.planner``.
+
+        ``auto`` (default) keeps v0.1 behaviour: grid if the scenario declares an
+        ``occupancy_grid``, else straight line. ``nav2`` delegates global
+        planning to a running Nav2 stack via a lazily-imported `rclpy` bridge
+        (see the 2026-05-29 Nav2 ADR).
+        """
+
+        choice = navigation_config.planner
+        grid = build_planner(scenario.raw)
+        if choice == "straight":
+            return StraightLinePlanner()
+        if choice == "grid":
+            if grid is None:
+                raise ValueError(
+                    "runtime.navigation.planner: grid requires an 'occupancy_grid' block"
+                )
+            return grid
+        if choice == "nav2":
+            from genesis_nav.nav2.bridge import build_nav2_planner
+
+            return build_nav2_planner(scenario)
+        return grid or StraightLinePlanner()
 
     # ------------------------------------------------------------------ tasks
 

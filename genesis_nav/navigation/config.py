@@ -19,6 +19,13 @@ class NavigationConfig:
     stuck_min_progress_m: float = 0.05
     recovery_wait_sec: float = 0.5
     max_recovery_retries: int = 3
+    # Planner backend selector. ``auto`` keeps the v0.1 behaviour (grid if the
+    # scenario declares an ``occupancy_grid``, else straight line). ``nav2``
+    # delegates global planning to a running Nav2 stack (see the 2026-05-29
+    # Nav2 ADR). Generalizes the grid|straight selector requested in issue #9.
+    planner: str = "auto"
+
+    PLANNER_CHOICES = ("auto", "grid", "straight", "nav2")
 
     @classmethod
     def from_scenario_raw(cls, raw: dict[str, Any] | None) -> "NavigationConfig":
@@ -27,6 +34,12 @@ class NavigationConfig:
         block = (raw.get("runtime") or {}).get("navigation") or {}
         if not isinstance(block, dict):
             raise ValueError("runtime.navigation must be a mapping")
+        planner = str(block.get("planner", cls.planner))
+        if planner not in cls.PLANNER_CHOICES:
+            choices = ", ".join(cls.PLANNER_CHOICES)
+            raise ValueError(
+                f"runtime.navigation.planner must be one of: {choices} (got '{planner}')"
+            )
         return cls(
             waypoint_tolerance_m=float(
                 block.get("waypoint_tolerance_m", cls.waypoint_tolerance_m)
@@ -43,6 +56,7 @@ class NavigationConfig:
             max_recovery_retries=int(
                 block.get("max_recovery_retries", cls.max_recovery_retries)
             ),
+            planner=planner,
         )
 
 
