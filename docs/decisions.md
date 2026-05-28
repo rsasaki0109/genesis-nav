@@ -467,8 +467,22 @@ logging the skip — no silent truncation) and runs them only with
 `--include-integration`. `benchmarks/nav2_integration/single_agent_nav2.yaml`
 (a `planner: nav2` scenario) is the reference: the deterministic suites stay
 green without a live Nav2 server, while the integration path is one flag away.
-This leaves routing Nav2's controller `cmd_vel` through `CommandGate` as the
-sole remaining Nav2 follow-up.
+
+Update (2026-05-29, same day): the last Nav2 follow-up — routing Nav2's
+controller `cmd_vel` through `CommandGate` — is now landed sim-first.
+`runtime.navigation.controller: nav2` selects a `Nav2Controller`, a drop-in for
+`SimpleLocalController` backed by the `Nav2ControllerService` boundary (real
+bridge subscribes to each agent's `cmd_vel`; `FakeNav2ControllerService` for
+tests). The key decision: `Nav2Controller.compute()` returns an ordinary
+`RuntimeCommand`, so Nav2's velocity flows through the *existing* `CommandGate`
+evaluation on the autonomy path — no new apply path, and the AI safety boundary
+holds by construction. A non-finite/over-limit Nav2 velocity is rejected and
+the agent stopped (proved by a unit test); when Nav2 has no command yet the
+controller falls back to the in-tree controller so motion degrades gracefully.
+`COMMAND_ACCEPTED` now carries `source` so a replay shows whether `navigation`
+or `nav2_controller` drove each command. This closes the Nav2 ADR's deferred
+items; only deeper Nav2 surface (costmap layers, recovery behaviors) remains
+explicitly out of scope per the project identity.
 
 ## 2026-05-29: Dynamic obstacles and replanning extend the planner contract, not a new subsystem
 

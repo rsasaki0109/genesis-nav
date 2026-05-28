@@ -2,17 +2,21 @@ scenario_id: bench_nav2_integration_single_agent
 seed: 42
 world: examples/worlds/warehouse_small.py
 max_sim_seconds: 30
-# Delegates global planning to a live Nav2 stack. This scenario needs an
-# external ComputePathToPose action server running, so it is NOT part of the
-# deterministic regression set: `gnav bench --run` skips it unless
-# --include-integration is passed (see benchmark.integration below).
+# Full Nav2 delegation: global planning via the ComputePathToPose action AND
+# velocity via the Nav2 controller server's cmd_vel (which still traverses
+# CommandGate as an AUTONOMY command). This needs an external Nav2 stack
+# running, so it is NOT part of the deterministic regression set: `gnav bench
+# --run` skips it unless --include-integration is passed (see
+# benchmark.integration below).
 runtime:
   navigation:
     planner: nav2
+    controller: nav2
 nav2:
   compute_path_action: compute_path_to_pose
   frame_id: map
   timeout_sec: 5.0
+  cmd_vel_topic: "/{agent}/cmd_vel"
 agents:
   - id: robot_001
     type: diff_drive
