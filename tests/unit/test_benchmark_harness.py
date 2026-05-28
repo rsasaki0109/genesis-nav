@@ -36,6 +36,16 @@ def test_expectation_replan_and_obstacle_min_keys() -> None:
     assert len(failures) == 2
 
 
+def test_expectation_watchdog_stop_min_and_max_keys() -> None:
+    min_expectation = BenchmarkExpectation(raw={"watchdog_stop_count_min": 1})
+    assert min_expectation.evaluate({"watchdog_stop_count": 1}) == []
+    assert len(min_expectation.evaluate({"watchdog_stop_count": 0})) == 1
+
+    max_expectation = BenchmarkExpectation(raw={"watchdog_stop_count_max": 0})
+    assert max_expectation.evaluate({"watchdog_stop_count": 0}) == []
+    assert len(max_expectation.evaluate({"watchdog_stop_count": 2})) == 1
+
+
 def test_expectation_max_fails_above_threshold() -> None:
     expectation = BenchmarkExpectation(raw={"command_rejection_count_max": 0})
     failures = expectation.evaluate({"command_rejection_count": 3})

@@ -13,9 +13,11 @@ imports `rclpy`, which keeps it importable and unit-testable in core CI.
 
 Command-staleness watchdog: a real base must coast to a stop if commands stop
 arriving. `seconds_since_command` / `watchdog_expired` expose that check as a
-tested helper. NOTE: auto-tripping the watchdog from the runtime tick is a
-v0.2 follow-up; today the helper is meant to be driven by the transport's own
-node timer (where a hardware watchdog belongs) or by an explicit caller.
+tested helper, evaluated on the transport's monotonic (wall) clock. The runtime
+auto-polls `watchdog_expired` from its safety tick (`_poll_safety_signals`) and,
+on the rising edge, emits a `SAFETY_STOP` and latches the agent's emergency
+stop. A hardware watchdog on the transport's own node timer can still back this
+up; both share the same helper.
 """
 
 from __future__ import annotations

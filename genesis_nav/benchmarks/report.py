@@ -31,6 +31,7 @@ _MIN_CHECKS: Mapping[str, str] = {
     "sim_steps_min": "sim_steps",
     "replan_count_min": "replan_count",
     "obstacle_event_count_min": "obstacle_event_count",
+    "watchdog_stop_count_min": "watchdog_stop_count",
 }
 
 _MAX_CHECKS: Mapping[str, str] = {
@@ -40,6 +41,7 @@ _MAX_CHECKS: Mapping[str, str] = {
     "collision_count_max": "collision_count",
     "near_miss_count_max": "near_miss_count",
     "emergency_stop_count_max": "emergency_stop_count",
+    "watchdog_stop_count_max": "watchdog_stop_count",
     "reservation_conflict_count_max": "reservation_conflict_count",
     "time_to_goal_mean_max_sec": "time_to_goal_mean_sec",
     "path_length_mean_max_m": "path_length_mean_m",

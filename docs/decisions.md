@@ -394,6 +394,17 @@ the factory changes. A hardware watchdog (max command age) is the adapter's
 responsibility and emits `SAFETY_STOP` through the existing event sink on
 staleness.
 
+Update (2026-05-29): the command-staleness watchdog auto-poll is now wired.
+`Runtime._poll_safety_signals` polls each adapter's `watchdog_expired` (on the
+transport's monotonic clock, not sim time) and, on the rising edge, emits
+`SAFETY_STOP` (`reason="command_watchdog"`), zeroes the actuator via
+`adapter.stop`, latches the emergency stop, and bumps `watchdog_stop_count`.
+The check is duck-typed, so sim/Genesis/humanoid adapters never participate.
+It is latched (no auto-clear on command resume) and stops the actuator directly
+rather than only via the per-task branch, so an idle/teleop robot whose command
+pipeline stalls is still zeroed. This closes the follow-up flagged in the
+2026-05-29 diagnostics ADR.
+
 Consequences:
 There is still exactly one place actuators can be driven and one arbiter in
 front of it. AI agents cannot reach hardware for the same reason they cannot

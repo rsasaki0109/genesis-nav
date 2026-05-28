@@ -163,9 +163,15 @@ real_robot:
 ```
 
 The adapter exposes a command-staleness watchdog (`seconds_since_command`,
-`watchdog_expired`). v0.1-era status: the watchdog helper is tested but its
-automatic runtime poll wiring is a v0.2 follow-up; today it is driven by the
-transport's node timer or an explicit caller.
+`watchdog_expired`) evaluated on the transport's monotonic (wall) clock. The
+runtime auto-polls it every tick from `_poll_safety_signals`: on the rising
+edge of expiry it emits `SAFETY_STOP` (`data.reason="command_watchdog"`,
+`source="ros2_robot_adapter"`, `command_age_sec`), zeroes the actuator, and
+latches the agent's emergency stop (which does not auto-clear when commands
+resume — an operator must clear it, as with comms loss on real hardware). The
+`watchdog_stop_count` metric counts these trips. Adapters without a
+`watchdog_expired` method (the sim fallback, Genesis, humanoid) never
+participate, so pure-sim runs are unaffected.
 
 ## Planner Backends
 

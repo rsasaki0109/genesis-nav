@@ -32,6 +32,7 @@ class MetricsSnapshot:
     reservation_released_count: int = 0
     replan_count: int = 0
     obstacle_event_count: int = 0
+    watchdog_stop_count: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

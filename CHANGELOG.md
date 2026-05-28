@@ -14,6 +14,15 @@ practice independently.
   `replan_count_min` predicates). `metrics.json` now exposes `replan_count` and
   `obstacle_event_count`.
 
+### Added
+- **Real-robot command-watchdog auto-poll** — the runtime now polls each
+  adapter's `watchdog_expired` every tick (`_poll_safety_signals`). When a real
+  robot's command pipeline stalls, the rising edge emits a `SAFETY_STOP`
+  (`reason="command_watchdog"`), zeroes the actuator, and latches the emergency
+  stop. New `watchdog_stop_count` metric and `watchdog_stop_count_min` /
+  `watchdog_stop_count_max` bench predicates. Duck-typed, so pure-sim runs never
+  trip; latched, so it does not auto-clear when commands resume.
+
 ### Changed
 - **ROS bridge `/cmd_vel` unified onto teleop API** — `RosBridge._on_cmd_vel`
   now forwards each Twist to `Runtime.submit_teleop_command(...,
