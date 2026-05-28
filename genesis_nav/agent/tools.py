@@ -25,6 +25,7 @@ from typing import Any
 
 from genesis_nav.core.runtime import Runtime
 from genesis_nav.core.task import TaskSpec, TaskStatus
+from genesis_nav.observability.diagnostics import DiagnosticsReport
 from genesis_nav.observability.events import RingBufferEventSink, RuntimeEvent
 
 
@@ -137,6 +138,15 @@ class AgentToolApi:
             pending_task_ids=pending,
             active_resource_leases=active_leases,
         )
+
+    def get_diagnostics(self) -> "DiagnosticsReport":
+        """Read-only per-agent health snapshot (OK / WARN / ERROR).
+
+        Safe for AI agents: it exposes existing health state only and cannot
+        mutate the runtime or actuators.
+        """
+
+        return self.runtime.diagnostics()
 
     def get_task_status(self, task_id: str) -> TaskSnapshot | None:
         record = self.runtime.metrics.tasks.get(task_id)

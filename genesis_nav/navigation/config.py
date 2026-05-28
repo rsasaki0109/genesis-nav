@@ -22,6 +22,9 @@ class NavigationConfig:
     # How long an accepted teleop command holds off the autonomy loop for the
     # same agent, so the operator keeps control between command bursts.
     teleop_hold_sec: float = 0.5
+    # Sim-seconds between periodic DIAGNOSTICS events. 0 disables emission
+    # (the snapshot is still always available via Runtime.diagnostics()).
+    diagnostics_interval_sec: float = 0.0
     # Planner backend selector. ``auto`` keeps the v0.1 behaviour (grid if the
     # scenario declares an ``occupancy_grid``, else straight line). ``nav2``
     # delegates global planning to a running Nav2 stack (see the 2026-05-29
@@ -61,6 +64,9 @@ class NavigationConfig:
             ),
             teleop_hold_sec=float(
                 block.get("teleop_hold_sec", cls.teleop_hold_sec)
+            ),
+            diagnostics_interval_sec=float(
+                block.get("diagnostics_interval_sec", cls.diagnostics_interval_sec)
             ),
             planner=planner,
         )

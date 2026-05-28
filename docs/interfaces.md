@@ -221,6 +221,25 @@ runtime:
     teleop_hold_sec: 0.5
 ```
 
+## Diagnostics
+
+`Runtime.diagnostics()` returns a read-only `DiagnosticsReport`: per-agent
+`DiagnosticLevel` (`OK` < `WARN` < `ERROR`, ordered like ROS 2
+`diagnostic_msgs`) plus an overall = worst-agent level. It folds
+`emergency_stopped` / `fall_detected` (→ ERROR), behavior `failed` (→ ERROR),
+and adapter command-staleness (the real-robot watchdog → WARN, with
+`command_age_sec`). Adapters without those signals do not contribute.
+`AgentToolApi.get_diagnostics()` exposes the same snapshot read-only to AI
+agents. When `runtime.navigation.diagnostics_interval_sec > 0`, a periodic
+`DIAGNOSTICS` event carrying `report.to_dict()` is emitted so replays
+reconstruct the health timeline (default 0 = disabled).
+
+```yaml
+runtime:
+  navigation:
+    diagnostics_interval_sec: 0.0   # >0 to emit periodic DIAGNOSTICS events
+```
+
 ## World File Contract
 
 Scenario `world` fields point to a Python module that defines:
@@ -273,6 +292,7 @@ Known event names:
 - `STUCK_RECOVERED`
 - `OBSTACLE_CHANGED`
 - `REPLAN_TRIGGERED`
+- `DIAGNOSTICS`
 - `SIM_RESET`
 - `SCENARIO_STARTED`
 - `SCENARIO_FINISHED`
