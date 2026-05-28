@@ -359,3 +359,115 @@ The table stays opinionated and short. We accept that it cannot answer every
 nuance — that is what the linked docs are for. If the table grows past about
 eight rows or starts hedging, that is a signal to split it out and re-open
 this ADR.
+
+## 2026-05-29: Real-robot adapter is an `EmbodimentAdapter`, not a new runtime path
+
+Status: Proposed (v0.2). No code exists yet; this ADR fixes the contract so
+the v0.1 → v0.2 boundary is honest and the real-robot path stays visible in
+runtime interfaces (per `AGENTS.md`).
+
+Context:
+v0.1 ships two embodiments — the deterministic `DiffDriveKinematics` fallback
+and the Genesis-backed adapter — both behind the `EmbodimentAdapter` Protocol
+(`read_pose`, `apply_command`, `stop`). v0.2's headline is "ROS 2 robot
+deployment" (Roadmap Phase 2). The temptation is to add a parallel
+"real-robot mode" with its own command flow. That would fork the safety
+contract: the whole point of `CommandGate` is that *nothing* reaches an
+actuator without arbitration, freshness, and E-stop checks.
+
+Decision:
+A real robot is just another `EmbodimentAdapter` selected via a new backend
+factory (`--backend ros2_robot`, implementation under `genesis_nav/ros2_robot/`).
+It satisfies the exact same three-method contract:
+- `read_pose()` reads the latest `/odom` (or `tf` `map→base_link`) sample held
+  by a spun `rclpy` node; it never blocks the runtime tick.
+- `apply_command(command, dt_sec)` receives a `RuntimeCommand` **that has
+  already passed `CommandGate`** and publishes the corresponding `Twist`
+  (or `FollowJointTrajectory` goal for non-diff-drive bases) to the robot.
+- `stop(reason)` latches a zero-velocity command and trips the hardware E-stop
+  surface.
+The adapter is the *outbound* hardware edge and is deliberately distinct from
+the v0.1 *inbound* `/cmd_vel → CommandGate → apply_external_command` teleop
+path (see the 2026-05-28 `/cmd_vel` ADR). Sim-real parity means the *same*
+scenario YAML runs against `--backend genesis` or `--backend ros2_robot`; only
+the factory changes. A hardware watchdog (max command age) is the adapter's
+responsibility and emits `SAFETY_STOP` through the existing event sink on
+staleness.
+
+Consequences:
+There is still exactly one place actuators can be driven and one arbiter in
+front of it. AI agents cannot reach hardware for the same reason they cannot
+reach the sim — `apply_command` only ever sees gate-approved commands. The new
+work is confined to a node lifecycle, QoS choices, and a frame/units mapping;
+the runtime loop, dispatcher, behavior machine, and replay format are
+untouched. The open risk is real-time latency: if `read_pose`/`apply_command`
+cannot meet the tick budget over DDS, v0.2 may need an async command buffer —
+that is a follow-up ADR, not a contract change.
+
+## 2026-05-29: Nav2 is a planner backend behind `plan()`, not a runtime replacement
+
+Status: Proposed (v0.2). Supersedes the forward-looking half of the
+2026-05-28 "static occupancy grid + GridAStarPlanner" ADR, which deferred the
+Nav2 question; v0.1's "no Nav2 plugin layer" stance is unchanged for v0.1.
+
+Context:
+The v0.1 comparison table and identity statement promise genesis-nav is *not*
+a Nav2 clone. Yet real-robot deployment (Phase 2) will want Nav2's mature
+costmaps, recovery behaviors, and controllers. The risk is two-sided: either
+we reimplement Nav2 (violating the identity), or we let Nav2 own the runtime
+loop (losing the arbitration, observability, and replay that are our core).
+
+Decision:
+Nav2 enters as a `Nav2Planner` that implements the same `plan()` signature as
+`GridAStarPlanner` / `StraightLinePlanner`, bridging to an already-running
+Nav2 stack via an `rclpy` `NavigateToPose` action client. genesis-nav remains
+the runtime, arbiter, and observability owner:
+- Planning is *delegated*; the resulting path still flows through the existing
+  `PLAN_RESOLVED` event and behavior state machine, so replays look identical
+  regardless of planner backend.
+- The `cmd_vel` Nav2's controller produces is treated as an external command
+  stamped `AuthorityMode.AUTONOMY` and **must traverse `CommandGate`** — the
+  same mechanism as teleop, so safety arbitration and E-stop still win.
+- genesis-nav never registers a Nav2 plugin and never reimplements a Nav2
+  planner; the boundary is the action/topic contract, nothing deeper.
+Backend selection is `runtime.navigation.planner: grid | straight | nav2`
+(this generalizes the selector requested in issue #9).
+
+Consequences:
+Sim scenarios keep using the in-tree deterministic planners (replayable, no
+ROS dependency); real deployments can borrow Nav2 without genesis-nav
+absorbing Nav2's surface area or losing its own contracts. The cost is that a
+`nav2` run is only as reproducible as the external stack — so `env.json` must
+record the Nav2 distro/version, and benchmark suites must mark `nav2`
+scenarios as integration-only, not part of the deterministic regression set.
+
+## 2026-05-29: Dynamic obstacles and replanning extend the planner contract, not a new subsystem
+
+Status: Proposed (v0.2). Names the third deferred item from issue #10 so the
+boundary is explicit.
+
+Context:
+v0.1's `GridAStarPlanner` plans once on the `ASSIGNED → PLANNING → EXECUTING`
+transition against a static grid checked into the scenario. Real environments
+have moving obstacles, and Phase 2/3 fleets need agents to wait or replan
+rather than drive through a freshly occupied cell. The wrong move is a new
+"dynamic world" subsystem that bypasses the deterministic, replayable grid.
+
+Decision:
+Dynamic obstacles arrive through an `ObstacleSource` protocol that publishes
+timestamped grid deltas into the runtime; each delta is recorded as a runtime
+event so replays reproduce the exact obstacle timeline from the run directory
+alone. Replanning is a new legal edge in the existing behavior machine
+(`executing → planning`) triggered when a chased waypoint becomes blocked;
+planners gain an optional `replan(from_pose, grid_snapshot)` that defaults to a
+full `plan()` for backends that cannot do incremental updates. No parallel
+state field and no out-of-band world mutation are introduced.
+
+Consequences:
+Determinism and the run-directory-as-truth contract survive: an obstacle
+stream is just more events, and a replay reconstructs the same plan/replan
+sequence. Planners opt into incremental replanning when they can and degrade
+to full replans otherwise. The cost is a new event type and a behavior-machine
+edge that every replay consumer must tolerate; that is additive, matching the
+"new transitions inside the same vocabulary" principle from the behavior-state
+ADR.
