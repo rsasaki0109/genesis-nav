@@ -23,6 +23,7 @@ from genesis_nav.benchmarks.report import (
 )
 from genesis_nav.benchmarks.scenario import Scenario, load_scenario
 from genesis_nav.core.runtime import Runtime, ensure_run_layout
+from genesis_nav.navigation.config import NavigationConfig
 from genesis_nav.observability.env import collect_env_metadata, write_env_metadata
 from genesis_nav.observability.events import (
     FanoutEventSink,
@@ -124,6 +125,7 @@ def run_command(args: argparse.Namespace) -> int:
     episode_id = f"{run_dir.name}_seed{scenario.seed}"
     max_sim_seconds = float(scenario.raw.get("max_sim_seconds", 60.0))
     mode = "fast" if args.fast else "realtime"
+    planner_choice = NavigationConfig.from_scenario_raw(scenario.raw).planner
 
     env_metadata = collect_env_metadata(
         scenario_id=scenario.scenario_id,
@@ -132,6 +134,7 @@ def run_command(args: argparse.Namespace) -> int:
         mode=mode,
         ros_enabled=bool(args.ros),
         record_rosbag=record_rosbag,
+        planner=planner_choice,
     )
     write_env_metadata(run_dir / "env.json", env_metadata)
 

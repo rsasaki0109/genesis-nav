@@ -39,6 +39,7 @@ def test_env_metadata_collector_has_expected_keys() -> None:
         "scenario_id",
         "seed",
         "backend",
+        "planner",
         "mode",
         "ros_enabled",
         "record_rosbag",
@@ -53,6 +54,7 @@ def test_env_metadata_collector_has_expected_keys() -> None:
     assert metadata["scenario_id"] == "smoke"
     assert metadata["seed"] == 7
     assert metadata["backend"] == "fallback"
+    assert metadata["planner"] == "auto"
     assert isinstance(metadata["git"], dict)
     assert {"sha", "branch", "dirty"} <= metadata["git"].keys()
 
@@ -74,6 +76,7 @@ def test_run_writes_env_json(tmp_path: Path) -> None:
     assert env["mode"] == "fast"
     assert env["ros_enabled"] is False
     assert env["backend"] == "fallback"
+    assert env["planner"] == "auto"
 
 
 def test_run_without_ros_skips_qos_copy(tmp_path: Path) -> None:
