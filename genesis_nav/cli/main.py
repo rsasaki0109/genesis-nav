@@ -198,13 +198,23 @@ def run_command(args: argparse.Namespace) -> int:
             except ImportError as exc:
                 print(f"--ros requires rclpy and genesis_nav_msgs: {exc}", file=sys.stderr)
                 return 3
+            def _ros_teleop(agent_id, linear_x, linear_y, angular_z):
+                return runtime.submit_teleop_command(
+                    agent_id,
+                    requester_id="ros_cmd_vel",
+                    source="ros_cmd_vel",
+                    linear_x=linear_x,
+                    linear_y=linear_y,
+                    angular_z=angular_z,
+                    episode_id=episode_id,
+                )
+
             bridge = RosBridge(
                 runtime.registry,
-                runtime.command_gate,
                 runtime.clock,
                 jsonl_sink,
                 config=BridgeConfig(qos_path=args.qos_profile),
-                external_command_handler=runtime.apply_external_command,
+                teleop_command_handler=_ros_teleop,
                 episode_id=episode_id,
             )
             event_sink = FanoutEventSink([jsonl_sink, event_buffer, bridge])

@@ -27,16 +27,31 @@ def _make_runtime(tmp_path: Path):
     return scenario, runtime, events
 
 
+def _ros_teleop_handler(runtime):
+    """Mirror the `gnav run --ros` wiring: cmd_vel -> submit_teleop_command."""
+
+    def handler(agent_id, linear_x, linear_y, angular_z):
+        return runtime.submit_teleop_command(
+            agent_id,
+            requester_id="ros_cmd_vel",
+            source="ros_cmd_vel",
+            linear_x=linear_x,
+            linear_y=linear_y,
+            angular_z=angular_z,
+        )
+
+    return handler
+
+
 def test_bridge_publishes_topics_for_each_agent(tmp_path: Path) -> None:
     scenario, runtime, events = _make_runtime(tmp_path)
     try:
         bridge = RosBridge(
             runtime.registry,
-            runtime.command_gate,
             runtime.clock,
             events,
             config=BridgeConfig(qos_path="configs/qos/default.yaml"),
-            external_command_handler=runtime.apply_external_command,
+            teleop_command_handler=_ros_teleop_handler(runtime),
             episode_id="episode-bridge-test",
         )
         try:
@@ -64,11 +79,10 @@ def test_bridge_forwards_cmd_vel_through_command_gate(tmp_path: Path) -> None:
     try:
         bridge = RosBridge(
             runtime.registry,
-            runtime.command_gate,
             runtime.clock,
             events,
             config=BridgeConfig(qos_path="configs/qos/default.yaml"),
-            external_command_handler=runtime.apply_external_command,
+            teleop_command_handler=_ros_teleop_handler(runtime),
             episode_id="episode-cmd-vel",
         )
         try:

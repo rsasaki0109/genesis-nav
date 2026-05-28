@@ -14,6 +14,19 @@ practice independently.
   `replan_count_min` predicates). `metrics.json` now exposes `replan_count` and
   `obstacle_event_count`.
 
+### Changed
+- **ROS bridge `/cmd_vel` unified onto teleop API** — `RosBridge._on_cmd_vel`
+  now forwards each Twist to `Runtime.submit_teleop_command(...,
+  requester_id="ros_cmd_vel")` instead of building its own `RuntimeCommand` and
+  evaluating `CommandGate` inline. The bridge is now pure transport; gating,
+  command events, the actuator apply, and the autonomy hold all live in the
+  runtime. This fixes two gaps in the old path: external `/cmd_vel` now carries
+  the required `requester_id` metadata and now yields autonomy for
+  `teleop_hold_sec` (an operator over ROS truly overrides autonomy).
+  `RosBridge.__init__` no longer takes a `CommandGate`; its
+  `external_command_handler` parameter is replaced by `teleop_command_handler`
+  (signature `(agent_id, linear_x, linear_y, angular_z) -> CommandDecision`).
+
 ## [0.2.0a0] — 2026-05-29
 
 v0.2 groundwork (alpha). The design ADRs dated 2026-05-29 in

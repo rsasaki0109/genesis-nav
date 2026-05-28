@@ -7,8 +7,9 @@ Responsibilities:
 - publish per-agent `<ns>/state` and `<ns>/odom`
 - broadcast tf (`<ns>/odom` -> `<ns>/base_link`) and tf_static (`map` ->
   `<ns>/odom`)
-- subscribe to per-agent `<ns>/cmd_vel` and forward each Twist through
-  `CommandGate` before it can affect actuators
+- subscribe to per-agent `<ns>/cmd_vel` and forward each Twist to the
+  runtime's teleop entry point, which runs it through `CommandGate` before
+  it can affect actuators
 
 The bridge runs in-process inside `gnav run --ros` and is also importable from
 ROS 2 nodes via `genesis_nav.ros.RosBridge`. All ROS imports are lazy so the
@@ -21,18 +22,23 @@ import json
 import math
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 from genesis_nav.core.agent import AgentRegistry, AgentState
-from genesis_nav.core.authority import AuthorityMode
 from genesis_nav.core.clock import RuntimeClock
-from genesis_nav.core.command_gate import CommandGate, RuntimeCommand
 from genesis_nav.core.task import TaskStatus
 from genesis_nav.observability.events import EventSink
 from genesis_nav.ros.qos import load_qos_profiles, qos_profile_for
 
+if TYPE_CHECKING:
+    from genesis_nav.core.command_gate import CommandDecision
 
-ExternalCommandHandler = Callable[[RuntimeCommand], None]
+
+# A teleop ingress handler: given (agent_id, linear_x, linear_y, angular_z) it
+# runs the command through the runtime's `CommandGate` and returns the gate
+# `CommandDecision`. The runtime owns the gate, events, and autonomy hold; the
+# bridge is pure transport. Wired to `Runtime.submit_teleop_command`.
+TeleopCommandHandler = Callable[[str, float, float, float], "CommandDecision"]
 
 
 @dataclass(frozen=True)
@@ -53,12 +59,11 @@ class RosBridge:
     def __init__(
         self,
         registry: AgentRegistry,
-        command_gate: CommandGate,
         runtime_clock: RuntimeClock,
         events: EventSink,
         *,
         config: BridgeConfig | None = None,
-        external_command_handler: ExternalCommandHandler | None = None,
+        teleop_command_handler: TeleopCommandHandler | None = None,
         episode_id: str = "",
     ) -> None:
         import rclpy
@@ -97,12 +102,11 @@ class RosBridge:
         self._owns_rclpy = True
 
         self.registry = registry
-        self.command_gate = command_gate
         self.runtime_clock = runtime_clock
         self.events = events
         self.config = config or BridgeConfig()
         self.episode_id = episode_id
-        self._external_command_handler = external_command_handler
+        self._teleop_command_handler = teleop_command_handler
         self.external_command_count = 0
         self.external_command_reject_count = 0
 
@@ -370,47 +374,22 @@ class RosBridge:
     # ------------------------------------------------------------- cmd_vel
 
     def _on_cmd_vel(self, agent_id: str, twist) -> None:  # type: ignore[no-untyped-def]
-        sim_time = self.runtime_clock.sim_time_sec
-        try:
-            spec = self.registry.get_spec(agent_id)
-        except KeyError:
+        # The bridge is pure transport: hand the Twist to the runtime's teleop
+        # entry point, which stamps it as a TELEOP command, runs it through
+        # `CommandGate`, emits COMMAND_ACCEPTED / COMMAND_REJECTED, and (on
+        # accept) holds off the autonomy loop. No gating happens here.
+        if self._teleop_command_handler is None:
             return
-        command = RuntimeCommand(
-            agent_id=agent_id,
-            linear_x=float(twist.linear.x),
-            linear_y=float(twist.linear.y),
-            angular_z=float(twist.angular.z),
-            authority=AuthorityMode.TELEOP,
-            source="ros_cmd_vel",
-            issued_at_sec=sim_time,
-            ttl_ms=spec.command_ttl_ms,
+        decision = self._teleop_command_handler(
+            agent_id,
+            float(twist.linear.x),
+            float(twist.linear.y),
+            float(twist.angular.z),
         )
-        decision = self.command_gate.evaluate(command, now_sec=sim_time)
-        if decision.accepted and decision.command is not None:
+        if decision.accepted:
             self.external_command_count += 1
-            self.events.write(
-                ts=sim_time,
-                episode_id=self.episode_id,
-                agent_id=agent_id,
-                event="COMMAND_ACCEPTED",
-                data={
-                    "linear_x": decision.command.linear_x,
-                    "angular_z": decision.command.angular_z,
-                    "authority": decision.command.authority.value,
-                    "source": decision.command.source,
-                },
-            )
-            if self._external_command_handler is not None:
-                self._external_command_handler(decision.command)
         else:
             self.external_command_reject_count += 1
-            self.events.write(
-                ts=sim_time,
-                episode_id=self.episode_id,
-                agent_id=agent_id,
-                event="COMMAND_REJECTED",
-                data={"reason": decision.reason, "source": "ros_cmd_vel"},
-            )
 
 
 def _yaw_to_quat(yaw: float) -> tuple[float, float, float, float]:
@@ -418,4 +397,4 @@ def _yaw_to_quat(yaw: float) -> tuple[float, float, float, float]:
     return (0.0, 0.0, math.sin(half), math.cos(half))
 
 
-__all__ = ["BridgeConfig", "ExternalCommandHandler", "RosBridge"]
+__all__ = ["BridgeConfig", "RosBridge", "TeleopCommandHandler"]

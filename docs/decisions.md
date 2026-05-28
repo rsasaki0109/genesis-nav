@@ -496,9 +496,18 @@ and on accept calls `apply_external_command` and records a per-agent teleop
 hold and yields the autonomy loop for that agent until it expires, so the
 agent retains the operator's last command instead of being overwritten. The
 hold is tracked in sim time (not the gate's monotonic authority lock) so it
-stays deterministic and replayable. The ROS bridge keeps its own `/cmd_vel`
-path for now; both share `CommandGate` and `apply_external_command`, and
-unifying the bridge onto this API is a follow-up.
+stays deterministic and replayable.
+
+Update (2026-05-29, same day): the ROS bridge `/cmd_vel` path was unified onto
+this API. `RosBridge._on_cmd_vel` is now pure transport — it forwards the Twist
+to an injected `teleop_command_handler` wired to
+`submit_teleop_command(..., requester_id="ros_cmd_vel")`. The bridge no longer
+builds `RuntimeCommand`s, evaluates the gate, or emits command events itself,
+and it no longer takes a `CommandGate` (the gate lives in the runtime). This
+closed two real gaps in the old bridge path: external `/cmd_vel` carried no
+`requester_id` (violating the authority/requester/timestamp metadata rule) and
+did not set the autonomy hold (so an operator over ROS did not actually suppress
+autonomy). Both are now fixed by construction.
 
 Consequences:
 The operator-override contract is now exercised in core CI without `rclpy`,

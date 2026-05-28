@@ -87,6 +87,56 @@ def test_non_finite_teleop_is_rejected(tmp_path: Path) -> None:
     assert "COMMAND_REJECTED" in kinds
 
 
+def test_ros_cmd_vel_wiring_carries_requester_and_holds_autonomy(
+    tmp_path: Path,
+) -> None:
+    """Lock the contract the ROS bridge `_on_cmd_vel` now relies on.
+
+    The bridge is pure transport: it forwards each Twist as
+    ``submit_teleop_command(..., requester_id="ros_cmd_vel",
+    source="ros_cmd_vel")``. That call must (1) stamp the safety-required
+    requester metadata onto the accepted command and (2) set the autonomy
+    hold so an external operator over ROS overrides autonomy the same way the
+    in-process API does. Verified here without rclpy.
+    """
+
+    scenario = load_scenario(SMOKE)
+    log = tmp_path / "e.jsonl"
+    with JsonlEventWriter(log) as events:
+        runtime = Runtime.from_scenario(scenario, events)
+        for task in scenario.tasks:
+            runtime.assign_task(task, ts=0.0, episode_id="ep")
+        for _ in range(5):
+            runtime.step(episode_id="ep")
+        c0 = runtime.metrics.command_accept_count
+        assert c0 > 0
+
+        decision = runtime.submit_teleop_command(
+            "robot_001",
+            requester_id="ros_cmd_vel",
+            source="ros_cmd_vel",
+            linear_x=0.1,
+            hold_sec=0.1,
+            episode_id="ep",
+        )
+        assert decision.accepted is True
+        # Autonomy yields within the hold (this is what the pre-unification ROS
+        # path failed to do).
+        c1 = runtime.metrics.command_accept_count
+        runtime.step(episode_id="ep")
+        assert runtime.metrics.command_accept_count == c1
+
+    accepted = [
+        json.loads(ln)
+        for ln in log.read_text().splitlines()
+        if ln and json.loads(ln)["event"] == "COMMAND_ACCEPTED"
+    ]
+    last = accepted[-1]["data"]
+    assert last["authority"] == "teleop"
+    assert last["requester_id"] == "ros_cmd_vel"
+    assert last["source"] == "ros_cmd_vel"
+
+
 def test_teleop_overrides_autonomy_for_hold_window(tmp_path: Path) -> None:
     scenario = load_scenario(SMOKE)
     with JsonlEventWriter(tmp_path / "e.jsonl") as events:
