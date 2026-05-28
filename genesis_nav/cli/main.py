@@ -61,10 +61,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     run.add_argument(
         "--backend",
-        choices=("fallback", "genesis"),
+        choices=("fallback", "genesis", "ros2_robot"),
         default="fallback",
         help="embodiment backend: 'fallback' uses the in-memory diff-drive, "
-        "'genesis' uses the Genesis adapter via the scenario world file",
+        "'genesis' uses the Genesis adapter via the scenario world file, "
+        "'ros2_robot' drives a real robot over /<agent>/cmd_vel + /<agent>/odom "
+        "(requires a sourced ROS 2 environment)",
     )
     run.set_defaults(func=run_command)
 
@@ -140,6 +142,7 @@ def run_command(args: argparse.Namespace) -> int:
 
     bridge = None
     genesis_backend = None
+    robot_backend = None
     if args.backend == "genesis":
         try:
             from genesis_nav.genesis.backend import (
@@ -150,11 +153,25 @@ def run_command(args: argparse.Namespace) -> int:
         except GenesisNotAvailableError as exc:
             print(f"--backend genesis unavailable: {exc}", file=sys.stderr)
             return 4
+    elif args.backend == "ros2_robot":
+        try:
+            from genesis_nav.ros2_robot.backend import (
+                Ros2RobotNotAvailableError,
+                build_ros2_robot_backend,
+            )
+            robot_backend = build_ros2_robot_backend(scenario)
+        except Ros2RobotNotAvailableError as exc:
+            print(f"--backend ros2_robot unavailable: {exc}", file=sys.stderr)
+            return 4
 
     with JsonlEventWriter(run_dir / "events.jsonl") as jsonl_sink:
         event_buffer = RingBufferEventSink(capacity=2048)
         event_sink: Any = FanoutEventSink([jsonl_sink, event_buffer])
-        adapter_factory = genesis_backend.spawn if genesis_backend is not None else None
+        adapter_factory = None
+        if genesis_backend is not None:
+            adapter_factory = genesis_backend.spawn
+        elif robot_backend is not None:
+            adapter_factory = robot_backend.spawn
         runtime = Runtime.from_scenario(
             scenario, event_sink, adapter_factory=adapter_factory
         )
@@ -214,6 +231,8 @@ def run_command(args: argparse.Namespace) -> int:
             def on_step(sim_time: float) -> None:
                 if genesis_backend is not None:
                     genesis_backend.step(runtime.clock.step_sec)
+                if robot_backend is not None:
+                    robot_backend.step(runtime.clock.step_sec)
                 if bridge is not None:
                     bridge.publish_clock(sim_time)
                     bridge.publish_states(sim_time)
@@ -251,6 +270,8 @@ def run_command(args: argparse.Namespace) -> int:
         finally:
             if bridge is not None:
                 bridge.shutdown()
+            if robot_backend is not None:
+                robot_backend.shutdown()
 
     metrics = MetricsSnapshot(
         scenario_id=scenario.scenario_id,

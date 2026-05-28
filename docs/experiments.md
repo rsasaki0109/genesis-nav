@@ -16,6 +16,7 @@
 | 2026-05-28 | Workstream N — docs and launch surface (no runtime change) | pending | CONTRIBUTING.md + 5 new issue templates + good-first-issues catalogue + comparison table + demo / launch scripts shipped; no rerun of smoke required | `gnav run` and `gnav bench` outputs unchanged; verified by inspection that no `genesis_nav/`, `ros2_ws/`, or `tests/` source files were touched. |
 | 2026-05-29 | `make demo-gif` (asciinema + agg) | pending | `docs/media/smoke_demo.gif` 486KB / 979x649, cast 11KB; sequence: `gnav run` success_rate=1.0 → `report.md` head → `gnav replay --print-events` 5 events → `gnav bench` 1/1 passed | First fully scripted README hero capture; `make demo-gif` reproduces deterministically from `scripts/record_demo.sh`. |
 | 2026-05-29 | v0.1.0 release tag | pending | All 3 CI workflows (`ci` / `docs` / `ros2`) green on `efde985`; pyproject bumped 0.1.0a0 → 0.1.0; CHANGELOG.md added | Closes PLAN.md §9 v0.1 milestone. Outstanding items rolled into v0.2 (see issue #10). |
+| 2026-05-29 | `examples/scenarios/smoke.yaml --fast --backend ros2_robot` | pending | first v0.2 slice: `--backend ros2_robot` builds a real rclpy node, publishes `/<agent>/cmd_vel`, subscribes `/<agent>/odom`, exits 0; 116 unit tests pass (+7 ros2_robot, all rclpy-free via `FakeRobotTransport`) | Dry connection only — no odom source on the host, so poses stay at origin. Verifies the outbound hardware edge + `CommandGate` path; real-robot loop closure is future work. See the 2026-05-29 real-robot ADR. |
 
 ## Failed Experiments
 

@@ -139,6 +139,34 @@ factory `Callable[[AgentSpec], EmbodimentAdapter]` so backends can be plugged
 without subclassing Runtime. The default factory returns
 `DiffDriveKinematics`. The Genesis backend supplies `GenesisBackend.spawn`.
 
+Selected by `gnav run --backend {fallback | genesis | ros2_robot}`.
+
+## Real-Robot Backend (`--backend ros2_robot`)
+
+The real-robot path is an `EmbodimentAdapter`, not a separate runtime mode (see
+the 2026-05-29 ADR in `docs/decisions.md`). `gnav run --backend ros2_robot`
+builds a `Ros2RobotBackend` whose `spawn` returns a `Ros2RobotAdapter` per
+agent. Per-agent topic convention (REP-103 frames, identity units):
+
+- publishes `geometry_msgs/Twist` on `/<agent_id>/cmd_vel`
+- subscribes `nav_msgs/Odometry` on `/<agent_id>/odom`
+
+Commands published to the robot have already passed `CommandGate`, so the AI
+safety boundary is identical to simulation. All `rclpy` use lives behind the
+`genesis_nav.ros2_robot.RobotTransport` protocol
+(`publish_velocity` / `latest_pose` / `monotonic_sec`); `FakeRobotTransport`
+makes the adapter unit-testable without ROS 2. Optional scenario block:
+
+```yaml
+real_robot:
+  command_timeout_sec: 0.5   # adapter watchdog horizon
+```
+
+The adapter exposes a command-staleness watchdog (`seconds_since_command`,
+`watchdog_expired`). v0.1-era status: the watchdog helper is tested but its
+automatic runtime poll wiring is a v0.2 follow-up; today it is driven by the
+transport's node timer or an explicit caller.
+
 ## World File Contract
 
 Scenario `world` fields point to a Python module that defines:
@@ -367,7 +395,7 @@ Every `gnav run` writes a self-contained directory under `--output-dir`
 - `resolved_config.yaml` — the parsed scenario after schema normalization.
 - `env.json` — host metadata: git sha/branch/dirty, ROS distro, Genesis
   version (if importable), Python version, hostname, platform, scenario
-  id/seed, backend (`fallback` | `genesis`), mode (`fast` | `realtime`),
+  id/seed, backend (`fallback` | `genesis` | `ros2_robot`), mode (`fast` | `realtime`),
   `ros_enabled`, `record_rosbag`.
 - `events.jsonl` — one JSON record per line, each carrying `ts`,
   `episode_id`, `event`, optional `agent_id`/`task_id`/`data`. The first
