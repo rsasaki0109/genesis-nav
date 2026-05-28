@@ -19,6 +19,7 @@ from genesis_nav.benchmarks.report import (
     BenchmarkScenarioResult,
     BenchmarkSuiteReport,
     discover_scenarios,
+    is_integration_scenario,
     now_iso,
 )
 from genesis_nav.benchmarks.scenario import Scenario, load_scenario
@@ -104,6 +105,12 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=None,
         help="path to write the benchmark report JSON (default: <output-dir>/<suite>_report.json)",
+    )
+    bench.add_argument(
+        "--include-integration",
+        action="store_true",
+        help="also run scenarios marked benchmark.integration (need an external "
+        "stack, e.g. a live Nav2 server); skipped by default",
     )
     bench.set_defaults(func=bench_command)
 
@@ -469,9 +476,32 @@ def _bench_run_suite(args: argparse.Namespace) -> int:
     suite_runs_dir = args.output_dir / suite_name
     suite_runs_dir.mkdir(parents=True, exist_ok=True)
 
-    results: list[BenchmarkScenarioResult] = []
+    include_integration = getattr(args, "include_integration", False)
+    runnable: list[tuple[Path, Scenario]] = []
+    skipped: list[dict[str, Any]] = []
     for scenario_path in scenarios:
         scenario = load_scenario(scenario_path)
+        if not include_integration and is_integration_scenario(scenario.raw):
+            skipped.append(
+                {
+                    "scenario_id": scenario.scenario_id,
+                    "scenario_path": str(scenario_path),
+                    "reason": "integration-only (needs external stack); "
+                    "pass --include-integration to run",
+                }
+            )
+            continue
+        runnable.append((scenario_path, scenario))
+
+    for entry in skipped:
+        print(
+            f"benchmark suite '{suite_name}': skipping {entry['scenario_id']} "
+            f"({entry['reason']})",
+            file=sys.stderr,
+        )
+
+    results: list[BenchmarkScenarioResult] = []
+    for scenario_path, scenario in runnable:
         try:
             expectation = BenchmarkExpectation.from_scenario_raw(scenario.raw)
         except ValueError as exc:
@@ -521,12 +551,14 @@ def _bench_run_suite(args: argparse.Namespace) -> int:
         benchmark_suite=suite_name,
         ran_at=now_iso(),
         scenarios=results,
+        skipped=skipped,
     )
     report_path = args.report or (args.output_dir / f"{suite_name}_report.json")
     write_json(report_path, report.to_dict())
+    skipped_note = f", {len(skipped)} skipped" if skipped else ""
     print(
         f"benchmark suite '{suite_name}': "
-        f"{report.passed}/{report.total} passed -> {report_path}"
+        f"{report.passed}/{report.total} passed{skipped_note} -> {report_path}"
     )
     for result in results:
         if not result.passed:

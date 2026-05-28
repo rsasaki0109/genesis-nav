@@ -458,8 +458,17 @@ resolved from the Nav2 `package.xml` (`<version>`) via `ament_index_python`
 across `nav2_bringup` / `nav2_msgs` / `nav2_core`. The lookup is best-effort
 and never raises — core CI and pure-sim runs have no ament index, so the field
 collects as `""`. `ros_distro` already captured the distro half. A replay of a
-`nav2` run now states which Nav2 it ran against. Marking `nav2` benchmark
-scenarios integration-only remains the open follow-up.
+`nav2` run now states which Nav2 it ran against.
+
+Update (2026-05-29, same day): the benchmark half is also closed. A scenario
+may declare `benchmark.integration: true`; `gnav bench --run` skips such
+scenarios by default (recording them under the report's `skipped` array and
+logging the skip — no silent truncation) and runs them only with
+`--include-integration`. `benchmarks/nav2_integration/single_agent_nav2.yaml`
+(a `planner: nav2` scenario) is the reference: the deterministic suites stay
+green without a live Nav2 server, while the integration path is one flag away.
+This leaves routing Nav2's controller `cmd_vel` through `CommandGate` as the
+sole remaining Nav2 follow-up.
 
 ## 2026-05-29: Dynamic obstacles and replanning extend the planner contract, not a new subsystem
 

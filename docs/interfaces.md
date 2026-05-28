@@ -203,10 +203,12 @@ runtime:
   A `nav2` run is only as reproducible as the external stack; `env.json` now
   records `nav2_version` (resolved from the Nav2 `package.xml` via the ament
   index, `""` when Nav2 is not on the path) alongside `ros_distro` so a replay
-  captures which Nav2 it ran against. Marking `nav2` benchmark scenarios as
-  integration-only is a documented follow-up (see the Nav2 ADR). This slice
-  delegates global planning only; routing Nav2's controller `cmd_vel` through
-  `CommandGate` as an `AUTONOMY` command is a follow-up.
+  captures which Nav2 it ran against. `nav2` benchmark scenarios are marked
+  `benchmark.integration: true` so the deterministic regression set skips them
+  unless `--include-integration` is passed (see the Benchmark Report Schema
+  section and `benchmarks/nav2_integration/`). This slice delegates global
+  planning only; routing Nav2's controller `cmd_vel` through `CommandGate` as
+  an `AUTONOMY` command is the remaining follow-up.
 
 ## Teleop (Operator Override)
 
@@ -538,7 +540,8 @@ single JSON document. Top-level keys:
 
 - `benchmark_suite` — directory name of the suite.
 - `ran_at` — UTC timestamp string.
-- `total`, `passed`, `failed` — counters across all scenarios.
+- `total`, `passed`, `failed` — counters across scenarios that actually ran.
+- `skipped_count` — number of scenarios skipped (integration-only).
 - `scenarios` — array of per-scenario entries, each with:
   - `scenario_id`, `scenario_path`, `seed`
   - `run_dir` — absolute or repo-relative path to the run artifact
@@ -546,10 +549,20 @@ single JSON document. Top-level keys:
   - `failures` — list of human-readable predicate violations
   - `metrics` — the full `metrics.json` for the run
   - `expected` — the `benchmark.expected` block as declared
+- `skipped` — array of `{scenario_id, scenario_path, reason}` for scenarios
+  not run this invocation.
 
 The predicate vocabulary is documented in
 [`benchmarks.md`](benchmarks.md). Unknown predicate keys produce a
 failure entry rather than being silently ignored.
+
+A scenario declaring `benchmark.integration: true` depends on an external
+stack (e.g. a live Nav2 `ComputePathToPose` server) and is therefore **not**
+part of the deterministic regression set: `gnav bench --run` skips it by
+default — recording it under `skipped` and logging the skip to stderr rather
+than truncating coverage silently — and runs it only when
+`--include-integration` is passed. `benchmarks/nav2_integration/` is the
+reference integration suite.
 
 ## Metrics Schema
 

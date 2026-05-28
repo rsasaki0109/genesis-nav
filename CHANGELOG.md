@@ -15,6 +15,16 @@ practice independently.
   `obstacle_event_count`.
 
 ### Added
+- **Integration-only benchmark scenarios** — a scenario may declare
+  `benchmark.integration: true` to mark it as depending on an external stack
+  (e.g. a live Nav2 server). `gnav bench --run` skips such scenarios by
+  default — recording them under the report's new `skipped` array (with a
+  `reason`) and logging the skip, so coverage is never silently truncated —
+  and runs them only with the new `--include-integration` flag. The report
+  also gains `skipped_count`. New reference suite
+  `benchmarks/nav2_integration/` (`planner: nav2`).
+
+### Added
 - **`env.json` Nav2 version capture** — run metadata now records
   `nav2_version`, resolved from the Nav2 `package.xml` `<version>` via the
   `ament_index_python` index (`nav2_bringup` / `nav2_msgs` / `nav2_core`).
