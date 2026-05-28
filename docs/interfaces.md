@@ -200,9 +200,11 @@ runtime:
     timeout_sec: 5.0
   ```
 
-  A `nav2` run is only as reproducible as the external stack; recording the
-  Nav2 distro/version in `env.json` and marking `nav2` benchmark scenarios as
-  integration-only are documented follow-ups (see the Nav2 ADR). This slice
+  A `nav2` run is only as reproducible as the external stack; `env.json` now
+  records `nav2_version` (resolved from the Nav2 `package.xml` via the ament
+  index, `""` when Nav2 is not on the path) alongside `ros_distro` so a replay
+  captures which Nav2 it ran against. Marking `nav2` benchmark scenarios as
+  integration-only is a documented follow-up (see the Nav2 ADR). This slice
   delegates global planning only; routing Nav2's controller `cmd_vel` through
   `CommandGate` as an `AUTONOMY` command is a follow-up.
 
@@ -503,11 +505,12 @@ Every `gnav run` writes a self-contained directory under `--output-dir`
 
 - `scenario.yaml` — verbatim copy of the input scenario.
 - `resolved_config.yaml` — the parsed scenario after schema normalization.
-- `env.json` — host metadata: git sha/branch/dirty, ROS distro, Genesis
-  version (if importable), Python version, hostname, platform, scenario
-  id/seed, backend (`fallback` | `genesis` | `ros2_robot`),
-  planner (`auto` | `grid` | `straight` | `nav2`), mode (`fast` | `realtime`),
-  `ros_enabled`, `record_rosbag`.
+- `env.json` — host metadata: git sha/branch/dirty, ROS distro, Nav2 version
+  (`nav2_version`, resolved from the Nav2 `package.xml` via the ament index,
+  `""` when Nav2 is absent), Genesis version (if importable), Python version,
+  hostname, platform, scenario id/seed, backend (`fallback` | `genesis` |
+  `ros2_robot`), planner (`auto` | `grid` | `straight` | `nav2`), mode
+  (`fast` | `realtime`), `ros_enabled`, `record_rosbag`.
 - `events.jsonl` — one JSON record per line, each carrying `ts`,
   `episode_id`, `event`, optional `agent_id`/`task_id`/`data`. The first
   record is always `SCENARIO_STARTED` and the last `SCENARIO_FINISHED`.

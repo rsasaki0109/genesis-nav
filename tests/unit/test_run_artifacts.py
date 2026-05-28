@@ -8,7 +8,11 @@ from pathlib import Path
 import pytest
 
 from genesis_nav.cli.main import main
-from genesis_nav.observability.env import collect_env_metadata, write_env_metadata
+from genesis_nav.observability.env import (
+    _read_package_xml_version,
+    collect_env_metadata,
+    write_env_metadata,
+)
 
 
 def _run_smoke(tmp_path: Path, extra: list[str] | None = None) -> Path:
@@ -48,6 +52,7 @@ def test_env_metadata_collector_has_expected_keys() -> None:
         "hostname",
         "git",
         "ros_distro",
+        "nav2_version",
         "genesis_version",
     ):
         assert key in metadata
@@ -57,6 +62,36 @@ def test_env_metadata_collector_has_expected_keys() -> None:
     assert metadata["planner"] == "auto"
     assert isinstance(metadata["git"], dict)
     assert {"sha", "branch", "dirty"} <= metadata["git"].keys()
+
+
+def test_nav2_version_is_empty_without_ros() -> None:
+    # ament_index_python is not on the core-CI / pure-sim path, so the field
+    # must collect quietly as "" rather than raising.
+    metadata = collect_env_metadata(
+        scenario_id="smoke",
+        seed=1,
+        backend="fallback",
+        mode="fast",
+        ros_enabled=False,
+        record_rosbag=False,
+    )
+    assert isinstance(metadata["nav2_version"], str)
+
+
+def test_read_package_xml_version_parses_version(tmp_path: Path) -> None:
+    pkg_xml = tmp_path / "package.xml"
+    pkg_xml.write_text(
+        "<?xml version='1.0'?>\n<package format='3'>\n"
+        "  <name>nav2_bringup</name>\n"
+        "  <version>1.3.7</version>\n"
+        "</package>\n",
+        encoding="utf-8",
+    )
+    assert _read_package_xml_version(pkg_xml) == "1.3.7"
+
+
+def test_read_package_xml_version_missing_file_is_empty(tmp_path: Path) -> None:
+    assert _read_package_xml_version(tmp_path / "nope.xml") == ""
 
 
 def test_write_env_metadata_roundtrip(tmp_path: Path) -> None:

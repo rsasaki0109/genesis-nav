@@ -452,6 +452,15 @@ absorbing Nav2's surface area or losing its own contracts. The cost is that a
 record the Nav2 distro/version, and benchmark suites must mark `nav2`
 scenarios as integration-only, not part of the deterministic regression set.
 
+Update (2026-05-29, same day): the `env.json` half of that reproducibility
+requirement is now closed. `collect_env_metadata` records `nav2_version`,
+resolved from the Nav2 `package.xml` (`<version>`) via `ament_index_python`
+across `nav2_bringup` / `nav2_msgs` / `nav2_core`. The lookup is best-effort
+and never raises — core CI and pure-sim runs have no ament index, so the field
+collects as `""`. `ros_distro` already captured the distro half. A replay of a
+`nav2` run now states which Nav2 it ran against. Marking `nav2` benchmark
+scenarios integration-only remains the open follow-up.
+
 ## 2026-05-29: Dynamic obstacles and replanning extend the planner contract, not a new subsystem
 
 Status: Proposed (v0.2). Names the third deferred item from issue #10 so the

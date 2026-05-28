@@ -12,6 +12,7 @@ import importlib
 import json
 import os
 import platform
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -44,6 +45,7 @@ def collect_env_metadata(
         "hostname": platform.node(),
         "git": _git_metadata(repo_root or Path.cwd()),
         "ros_distro": os.environ.get("ROS_DISTRO", ""),
+        "nav2_version": _nav2_version(),
         "genesis_version": _genesis_version(),
     }
 
@@ -91,6 +93,41 @@ def _genesis_version() -> str:
     except ImportError:
         return ""
     return str(getattr(module, "__version__", ""))
+
+
+def _nav2_version() -> str:
+    """Best-effort Nav2 stack version from the ROS 2 ament index.
+
+    Reads ``<version>`` from the ``package.xml`` of a representative Nav2
+    package. Returns ``""`` when ROS 2 / Nav2 is not on the path so pure-sim
+    and core-CI runs (no `ament_index_python`) stay quiet. Never raises — the
+    field is observability only and must not break a run.
+    """
+
+    try:
+        from ament_index_python.packages import get_package_share_directory
+    except ImportError:
+        return ""
+    for package in ("nav2_bringup", "nav2_msgs", "nav2_core"):
+        try:
+            share = Path(get_package_share_directory(package))
+        except Exception:  # PackageNotFoundError and anything below it
+            continue
+        version = _read_package_xml_version(share / "package.xml")
+        if version:
+            return version
+    return ""
+
+
+def _read_package_xml_version(path: Path) -> str:
+    """Extract the ``<version>`` text from a ROS 2 ``package.xml``."""
+
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+    match = re.search(r"<version>\s*([^<\s]+)\s*</version>", text)
+    return match.group(1) if match else ""
 
 
 __all__ = ["collect_env_metadata", "write_env_metadata"]
