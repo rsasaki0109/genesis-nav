@@ -1,0 +1,12 @@
+---
+description: ROS 2 interface work in genesis-nav
+globs:
+  - "genesis_nav/ros/**"
+  - "ros2_ws/src/**"
+  - "docs/interfaces.md"
+---
+
+- Treat ROS 2 topics, messages, actions, services, and QoS as public contracts.
+- Update `docs/interfaces.md` for any public ROS 2 change.
+- Prefer per-agent namespaces over per-agent ROS domains for v0.1.
+- Keep actuator commands behind `CommandGate`.

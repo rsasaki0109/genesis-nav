@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+build/
+install/
+log/
+runs/
+benchmarks/_runs/
+dist/
+*.db3
+*.mcap

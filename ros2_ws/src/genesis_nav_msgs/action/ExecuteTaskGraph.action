@@ -1,0 +1,10 @@
+string task_id
+string agent_id
+string task_graph_json
+---
+bool success
+string error_code
+string message
+---
+string active_node_id
+string status

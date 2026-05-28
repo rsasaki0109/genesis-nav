@@ -1,0 +1,11 @@
+std_msgs/Header header
+string agent_id
+string embodiment_type
+string lifecycle_state
+string authority_mode
+geometry_msgs/PoseWithCovariance pose
+geometry_msgs/TwistWithCovariance twist
+string current_task_id
+float32 battery
+bool emergency_stopped
+string[] capabilities

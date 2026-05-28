@@ -1,0 +1,9 @@
+events:
+  enabled: true
+  path: events.jsonl
+metrics:
+  enabled: true
+  path: metrics.json
+report:
+  enabled: true
+  path: report.md

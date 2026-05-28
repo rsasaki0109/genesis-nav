@@ -1,0 +1,10 @@
+runtime:
+  mode: fast
+  fixed_step_sec: 0.02
+  command_ttl_ms: 200
+  seed: 42
+safety:
+  max_linear_x: 1.0
+  max_linear_y: 1.0
+  max_angular_z: 1.5
+  allow_ai_velocity_commands: false

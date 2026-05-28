@@ -1,0 +1,4 @@
+{
+  "name": "genesis_nav",
+  "type": "ros.ament_cmake"
+}

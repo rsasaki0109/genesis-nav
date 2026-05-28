@@ -1,0 +1,19 @@
+name: docs
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  docs-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check required docs
+        run: |
+          test -s README.md
+          test -s docs/interfaces.md
+          test -s docs/experiments.md
+          test -s docs/decisions.md
+          test -s docs/architecture.md

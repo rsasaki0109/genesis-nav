@@ -1,0 +1,17 @@
+type: humanoid
+embodiment: humanoid
+frames:
+  map: map
+  odom: humanoid/odom
+  base: humanoid/base_link
+  pelvis: humanoid/pelvis
+  left_foot: humanoid/left_foot
+  right_foot: humanoid/right_foot
+capabilities:
+  - navigate_2d
+  - stop
+  - report_pose
+  - report_humanoid_state
+authority:
+  mode: autonomous
+  command_ttl_ms: 200

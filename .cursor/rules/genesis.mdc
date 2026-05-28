@@ -1,0 +1,11 @@
+---
+description: Genesis adapter work in genesis-nav
+globs:
+  - "genesis_nav/genesis/**"
+  - "examples/worlds/**"
+---
+
+- Keep Genesis-specific imports under `genesis_nav/genesis/`.
+- Do not leak Genesis API types into `genesis_nav/core/`.
+- Runtime core must remain unit-testable without Genesis installed.
+- Add smoke scenarios for new world or robot adapter behavior.
