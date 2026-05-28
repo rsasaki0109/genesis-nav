@@ -12,7 +12,7 @@ from genesis_nav.benchmarks.scenario import Scenario
 from genesis_nav.core.agent import AgentRegistry
 from genesis_nav.core.authority import AuthorityMode
 from genesis_nav.core.clock import RuntimeClock, SimulationMode
-from genesis_nav.core.command_gate import CommandGate, RuntimeCommand
+from genesis_nav.core.command_gate import CommandDecision, CommandGate, RuntimeCommand
 from genesis_nav.core.embodiment import DiffDriveKinematics, EmbodimentAdapter
 from genesis_nav.core.lifecycle import LifecycleState
 from genesis_nav.core.task import TaskSpec, TaskStatus
@@ -146,6 +146,7 @@ class Runtime:
         ] = {}
         self._recovery_resume_at_sec: dict[str, float] = {}
         self._recovery_retries: dict[str, int] = {}
+        self._teleop_hold_until: dict[str, float] = {}
 
     @classmethod
     def from_scenario(
@@ -402,6 +403,83 @@ class Runtime:
         state.angular_velocity_z = command.angular_z
         self.metrics.command_accept_count += 1
 
+    def submit_teleop_command(
+        self,
+        agent_id: str,
+        *,
+        requester_id: str,
+        linear_x: float = 0.0,
+        linear_y: float = 0.0,
+        angular_z: float = 0.0,
+        source: str = "teleop",
+        ttl_ms: int | None = None,
+        hold_sec: float | None = None,
+        episode_id: str | None = None,
+    ) -> CommandDecision:
+        """First-class, transport-agnostic operator teleop entry point.
+
+        Stamps a `TELEOP` `RuntimeCommand` with the operator's `requester_id`
+        and the current sim time, evaluates it through `CommandGate`, emits
+        `COMMAND_ACCEPTED` / `COMMAND_REJECTED`, and on accept applies it and
+        holds off the autonomy loop for `hold_sec` (default
+        `navigation.teleop_hold_sec`) so the operator keeps control. This is
+        the in-process equivalent of the ROS bridge's `/cmd_vel` path; both
+        share `CommandGate` and `apply_external_command`.
+
+        AI callers cannot use this to drive actuators: a `TELEOP` authority
+        from a non-operator source is still the operator's responsibility, and
+        AI-authority velocity commands remain rejected by the gate.
+        """
+
+        if not requester_id:
+            raise ValueError("submit_teleop_command requires a non-empty requester_id")
+        ep = episode_id or self._current_episode_id
+        sim_time = self.clock.sim_time_sec
+        try:
+            spec = self.registry.get_spec(agent_id)
+        except KeyError:
+            return CommandDecision(False, "unknown agent")
+
+        ttl = ttl_ms if ttl_ms is not None else spec.command_ttl_ms
+        command = RuntimeCommand(
+            agent_id=agent_id,
+            linear_x=linear_x,
+            linear_y=linear_y,
+            angular_z=angular_z,
+            authority=AuthorityMode.TELEOP,
+            source=source,
+            issued_at_sec=sim_time,
+            ttl_ms=ttl,
+            requester_id=requester_id,
+        )
+        decision = self.command_gate.evaluate(command, now_sec=sim_time)
+        if decision.accepted and decision.command is not None:
+            self.events.write(
+                ts=sim_time,
+                episode_id=ep,
+                agent_id=agent_id,
+                event="COMMAND_ACCEPTED",
+                data={
+                    "linear_x": decision.command.linear_x,
+                    "angular_z": decision.command.angular_z,
+                    "authority": decision.command.authority.value,
+                    "source": decision.command.source,
+                    "requester_id": requester_id,
+                },
+            )
+            self.apply_external_command(decision.command)
+            hold = self.navigation_config.teleop_hold_sec if hold_sec is None else hold_sec
+            self._teleop_hold_until[agent_id] = sim_time + max(0.0, hold)
+        else:
+            self._emit_command_rejected(
+                sim_time,
+                ep,
+                agent_id,
+                self.registry.get_state(agent_id).current_task_id,
+                decision.reason,
+            )
+        return decision
+
     # ------------------------------------------------------------------ loop
 
     def step(self, *, episode_id: str) -> float:
@@ -439,6 +517,12 @@ class Runtime:
                 adapter.stop("emergency stop")
                 state.linear_velocity_x = 0.0
                 state.angular_velocity_z = 0.0
+                continue
+
+            # Operator override: while a teleop command holds this agent, the
+            # autonomy loop yields so it cannot fight the operator. The agent
+            # retains the last teleop velocity until the hold expires.
+            if sim_time < self._teleop_hold_until.get(state.agent_id, 0.0):
                 continue
 
             if goal is None:

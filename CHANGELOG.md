@@ -32,6 +32,11 @@ ROS 2, and every actuator-bound command still passes `CommandGate`.
   via a `ComputePathToPose` action behind `genesis_nav.nav2.Nav2PathService`,
   while genesis-nav stays the runtime/arbiter. Generalizes the selector from
   issue #9.
+- **Teleop (operator override)** — `Runtime.submit_teleop_command(...)`, a
+  transport-agnostic operator entry point that runs a `TELEOP` command through
+  `CommandGate` and, on accept, holds off the autonomy loop for
+  `navigation.teleop_hold_sec` so the operator keeps control. Exercised in core
+  CI without `rclpy`.
 - **Observability** — `env.json` records the selected `planner`.
 
 ### Known limitations (carried into v0.2 work)
