@@ -1,0 +1,67 @@
+# Changelog
+
+All notable changes to `genesis-nav` are recorded here. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/) loosely and the
+project follows [Semantic Versioning](https://semver.org/) for the Python
+package; the ROS 2 packages under `ros2_ws/src/` follow ROS 2 release
+practice independently.
+
+## [0.1.0] — 2026-05-29
+
+The first tagged release. v0.1 closes PLAN.md §9 workstreams F / G / H / I /
+J / K / L / M / N. The runtime is sim-first and ROS 2-bridged; real-robot
+adapters are deferred to v0.2 (see issue #10).
+
+### Added
+
+- **Runtime core** — agent registry, task model with status / behavior state
+  separation, ring-buffer event sink, `CommandGate` with authority +
+  requester + timestamp metadata, fleet dispatcher with nearest-fit
+  selection, lease-based reservations.
+- **Navigation MVP** — `GridAStarPlanner` (8-connected, Octile heuristic,
+  corner-cut prevention, colinear waypoint simplification),
+  `StraightLinePlanner` fallback, behavior state machine (`idle` /
+  `assigned` / `planning` / `reserving` / `executing` / `recovering` /
+  `succeeded` / `failed`), stuck detection + `RECOVERING` wait,
+  `NavigationConfig` scenario block.
+- **ROS 2 bridge** — in-process `EventSink` fanout, per-agent `/state` and
+  `/odom`, tf / tf_static, `/clock`, `/genesis_nav/events`, external
+  `/cmd_vel` traversing `CommandGate`. Marker package `genesis_nav_ros`,
+  message package `genesis_nav_msgs`, bringup package
+  `genesis_nav_bringup`.
+- **Observability** — `events.jsonl`, `metrics.json`, `env.json`,
+  `report.md` under deterministic `runs/<timestamp>_<scenario>/`. New
+  events `PLAN_RESOLVED`, `PLAN_FAILED`, `BEHAVIOR_STATE_CHANGED`,
+  `STUCK_RECOVERED`. Counters: `stuck_event_count`, `recovery_count`,
+  `plan_failure_count`.
+- **Replay** — `gnav replay <run_dir>` validates artifacts strictly and
+  streams the event timeline via `--print-events`.
+- **Benchmarks** — `gnav bench --run benchmarks/<suite>` with expectation
+  predicates across `nav_basic`, `multi_agent`, `runtime`, `humanoid`
+  suites. Reports under `benchmarks/_runs/<suite>_report.json` carry
+  `run_dir` for failure debug.
+- **AI safety boundary** — `genesis_nav.agent.AgentToolApi` as the only
+  Python surface AI agents may call. Audit trail via `data.source =
+  "ai_tool_api"` and `requester_id` on every AI-originated event.
+- **Humanoid shell** — navigation-intent type only; gait / balance /
+  footstep planning intentionally out of scope (see `docs/humanoid.md`).
+- **Tests** — 109 unit tests, 1 skipped; smoke + `warehouse_10_agents` +
+  `humanoid_nav_intent` scenarios green end-to-end.
+- **Community surface** — `CONTRIBUTING.md`,
+  `docs/contributing_scenarios.md`, `docs/good_first_issues.md` (10
+  curated entries), 6 issue templates (`task` / `architecture` /
+  `benchmark` / `robot_adapter` / `scenario` / `bug`), comparison table
+  in README, demo script and launch-post drafts.
+- **Demo automation** — `make demo-gif` records the smoke tour with
+  `asciinema` + `agg` into `docs/media/smoke_demo.gif` and
+  `docs/media/smoke_demo.cast`.
+
+### Known limitations
+
+- No dynamic obstacles in the grid planner.
+- No spatial conflict resolution between agents (reservations are
+  lease-based, not costmap-aware).
+- No Nav2 plugin bridge (intentional — see ADR in `docs/decisions.md`).
+- No real-robot adapters yet; the path is via the ROS 2 contract.
+
+[0.1.0]: https://github.com/rsasaki0109/genesis-nav/releases/tag/v0.1.0
