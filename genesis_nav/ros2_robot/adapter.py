@@ -22,6 +22,7 @@ up; both share the same helper.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Protocol, runtime_checkable
 
@@ -71,6 +72,57 @@ class FakeRobotTransport:
 
     def advance(self, dt_sec: float) -> None:
         self.clock_sec += float(dt_sec)
+
+
+@dataclass
+class LoopbackRobotTransport:
+    """`RobotTransport` that closes the loop in-process (no ROS, no hardware).
+
+    Models the part a real robot would do itself: integrate the commanded
+    velocity into its own pose and report it back as odom. `publish_velocity`
+    latches the setpoint; `integrate(dt)` advances the pose with the same
+    differential-drive model as `DiffDriveKinematics` and advances the monotonic
+    clock. So driving an `Ros2RobotAdapter` over this transport exercises the
+    full real-robot contract — `CommandGate` → `apply_command` →
+    `publish_velocity` → odom feedback → `read_pose` → controller — end to end,
+    deterministically and without `rclpy`.
+
+    The runtime never calls `integrate`; the backend does, from its per-tick
+    `step(dt)`, mirroring how the `rclpy` backend drains odom callbacks. This
+    keeps the one-tick odom lag a real robot also has.
+    """
+
+    x: float = 0.0
+    y: float = 0.0
+    yaw: float = 0.0
+    clock_sec: float = 0.0
+    linear_x: float = 0.0
+    linear_y: float = 0.0
+    angular_z: float = 0.0
+    published: list[tuple[float, float, float]] = field(default_factory=list)
+
+    def publish_velocity(self, linear_x: float, linear_y: float, angular_z: float) -> None:
+        self.linear_x = float(linear_x)
+        self.linear_y = float(linear_y)
+        self.angular_z = float(angular_z)
+        self.published.append((self.linear_x, self.linear_y, self.angular_z))
+
+    def latest_pose(self) -> tuple[float, float, float] | None:
+        return (self.x, self.y, self.yaw)
+
+    def monotonic_sec(self) -> float:
+        return self.clock_sec
+
+    def integrate(self, dt_sec: float) -> None:
+        """Advance the simulated robot by the latched velocity over ``dt_sec``."""
+
+        dt = float(dt_sec)
+        self.clock_sec += dt
+        if dt <= 0.0:
+            return
+        self.yaw = _wrap_angle(self.yaw + self.angular_z * dt)
+        self.x += self.linear_x * math.cos(self.yaw) * dt
+        self.y += self.linear_x * math.sin(self.yaw) * dt
 
 
 @dataclass
@@ -136,3 +188,7 @@ class Ros2RobotAdapter:
         if elapsed is None:
             return False
         return elapsed > self.command_timeout_sec
+
+
+def _wrap_angle(theta: float) -> float:
+    return ((theta + math.pi) % (2.0 * math.pi)) - math.pi

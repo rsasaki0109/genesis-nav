@@ -9,6 +9,18 @@ practice independently.
 ## [Unreleased]
 
 ### Added
+- **Real-robot loop closure (loopback transport)** — `real_robot.transport:
+  loopback` selects an rclpy-free `LoopbackRobotTransport` that integrates the
+  commanded velocity into odom (same diff-drive model as the fallback), closing
+  the real-robot loop in process. The *same* `Ros2RobotAdapter` is used — only
+  the transport differs — so the full contract (`CommandGate` → `apply_command`
+  → `publish_velocity` → odom feedback → `read_pose` → controller) runs end to
+  end without `rclpy` or hardware. `gnav run --backend ros2_robot` with
+  `transport: loopback` now reaches the goal deterministically in core CI,
+  closing the "real-robot loop closure is future work" item. `transport: ros2`
+  (default) is the live `rclpy` path as before.
+
+### Added
 - **Nav2 controller delegation** — `runtime.navigation.controller: local |
   nav2`. `nav2` delegates velocity generation to a running Nav2 controller
   server via the `genesis_nav.nav2.Nav2ControllerService` boundary.
