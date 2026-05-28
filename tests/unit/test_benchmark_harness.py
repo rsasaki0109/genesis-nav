@@ -27,6 +27,15 @@ def test_expectation_min_fails_below_threshold() -> None:
     assert "0.5" in failures[0]
 
 
+def test_expectation_replan_and_obstacle_min_keys() -> None:
+    expectation = BenchmarkExpectation(
+        raw={"replan_count_min": 1, "obstacle_event_count_min": 1}
+    )
+    assert expectation.evaluate({"replan_count": 1, "obstacle_event_count": 2}) == []
+    failures = expectation.evaluate({"replan_count": 0, "obstacle_event_count": 0})
+    assert len(failures) == 2
+
+
 def test_expectation_max_fails_above_threshold() -> None:
     expectation = BenchmarkExpectation(raw={"command_rejection_count_max": 0})
     failures = expectation.evaluate({"command_rejection_count": 3})
