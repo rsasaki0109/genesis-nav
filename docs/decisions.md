@@ -415,6 +415,25 @@ untouched. The open risk is real-time latency: if `read_pose`/`apply_command`
 cannot meet the tick budget over DDS, v0.2 may need an async command buffer —
 that is a follow-up ADR, not a contract change.
 
+Update (2026-05-29, same day): the real-robot loop is now closeable in
+process. The earlier `--backend ros2_robot` slice proved the *outbound* edge
+(commands reach `/cmd_vel`) but, with no robot to integrate them, poses stayed
+at origin — loop closure was future work. `real_robot.transport: loopback`
+selects a `LoopbackRobotTransport` (rclpy-free) that does the part a real robot
+does itself: integrate the commanded velocity into its own pose and report it
+back as odom, using the same diff-drive model as `DiffDriveKinematics`. The
+adapter is unchanged — the *same* `Ros2RobotAdapter`, only the transport
+differs — so the full contract (`CommandGate` → `apply_command` →
+`publish_velocity` → odom feedback → `read_pose` → controller) runs end to end
+and deterministically, without `rclpy` or hardware. Verified e2e: `--backend
+ros2_robot` with `transport: loopback` reaches the smoke goal in 265 sim steps
+(matching the fallback baseline, confirming the integration model agrees) and
+replays strictly. The transport keeps the realistic one-tick odom lag (the
+backend integrates from its per-tick `step(dt)`, the loopback equivalent of
+draining odom callbacks). This makes the real-robot path a first-class,
+testable citizen of core CI rather than a dry connection. The DDS-latency
+follow-up above is unchanged.
+
 ## 2026-05-29: Nav2 is a planner backend behind `plan()`, not a runtime replacement
 
 Status: Proposed (v0.2). Supersedes the forward-looking half of the

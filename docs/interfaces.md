@@ -159,8 +159,22 @@ makes the adapter unit-testable without ROS 2. Optional scenario block:
 
 ```yaml
 real_robot:
+  transport: ros2          # ros2 | loopback
   command_timeout_sec: 0.5   # adapter watchdog horizon
 ```
+
+`transport: loopback` closes the real-robot loop **in process** — the *same*
+`Ros2RobotAdapter` drives a `LoopbackRobotTransport` that integrates the
+commanded velocity into its own pose and reports it back as odom (the part a
+real robot does itself), using the `DiffDriveKinematics` model. So the full
+contract — `CommandGate` → `apply_command` → `publish_velocity` → odom feedback
+→ `read_pose` → controller — runs end to end, deterministically, **without
+`rclpy` or hardware** (`gnav run --backend ros2_robot` then needs no ROS 2
+environment). The backend integrates from its per-tick `step(dt)`, preserving
+the one-tick odom lag a real robot also has. `transport: ros2` (default) talks
+to a live robot over the `rclpy` graph as before. This makes the real-robot
+path a tested citizen of core CI rather than a dry connection (see the
+2026-05-29 real-robot ADR update).
 
 The adapter exposes a command-staleness watchdog (`seconds_since_command`,
 `watchdog_expired`) evaluated on the transport's monotonic (wall) clock. The

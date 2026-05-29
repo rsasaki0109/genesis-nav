@@ -1,0 +1,38 @@
+scenario_id: real_robot_loopback
+seed: 42
+world: examples/worlds/warehouse_small.py
+# Drives the real-robot adapter (`--backend ros2_robot`) with the loop closed
+# in process: `transport: loopback` integrates the commanded velocity into odom
+# itself, so the full CommandGate -> apply_command -> publish_velocity -> odom
+# -> read_pose contract runs end to end WITHOUT rclpy or hardware. Run with:
+#   gnav run examples/scenarios/real_robot_loopback.yaml --fast --backend ros2_robot
+real_robot:
+  transport: loopback
+  command_timeout_sec: 0.5
+agents:
+  - id: robot_001
+    type: diff_drive
+    namespace: /robot_001
+    spawn: [0.0, 0.0, 0.0]
+    frames:
+      map: map
+      odom: robot_001/odom
+      base: robot_001/base_link
+    capabilities:
+      - navigate_2d
+      - stop
+      - report_pose
+    authority:
+      mode: autonomous
+      command_ttl_ms: 200
+tasks:
+  - id: task_001
+    type: navigate_to_pose
+    agent: robot_001
+    goal: [2.0, 1.0, 0.0]
+metrics:
+  - success_rate
+  - time_to_goal
+record:
+  rosbag: false
+  events: true

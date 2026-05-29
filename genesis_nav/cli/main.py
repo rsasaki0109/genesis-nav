@@ -164,15 +164,23 @@ def run_command(args: argparse.Namespace) -> int:
             print(f"--backend genesis unavailable: {exc}", file=sys.stderr)
             return 4
     elif args.backend == "ros2_robot":
-        try:
-            from genesis_nav.ros2_robot.backend import (
-                Ros2RobotNotAvailableError,
-                build_ros2_robot_backend,
-            )
-            robot_backend = build_ros2_robot_backend(scenario)
-        except Ros2RobotNotAvailableError as exc:
-            print(f"--backend ros2_robot unavailable: {exc}", file=sys.stderr)
-            return 4
+        from genesis_nav.ros2_robot.backend import (
+            Ros2RobotNotAvailableError,
+            build_loopback_robot_backend,
+            build_ros2_robot_backend,
+            robot_transport_mode,
+        )
+
+        if robot_transport_mode(scenario) == "loopback":
+            # Loop-closed in process: exercises the real-robot contract end to
+            # end without rclpy or hardware (see the 2026-05-29 real-robot ADR).
+            robot_backend = build_loopback_robot_backend(scenario)
+        else:
+            try:
+                robot_backend = build_ros2_robot_backend(scenario)
+            except Ros2RobotNotAvailableError as exc:
+                print(f"--backend ros2_robot unavailable: {exc}", file=sys.stderr)
+                return 4
 
     with JsonlEventWriter(run_dir / "events.jsonl") as jsonl_sink:
         event_buffer = RingBufferEventSink(capacity=2048)

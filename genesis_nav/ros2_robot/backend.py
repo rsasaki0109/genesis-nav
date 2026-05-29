@@ -19,11 +19,77 @@ from typing import Any
 from genesis_nav.benchmarks.scenario import Scenario
 from genesis_nav.core.agent import AgentSpec
 from genesis_nav.core.embodiment import EmbodimentAdapter
-from genesis_nav.ros2_robot.adapter import Ros2RobotAdapter
+from genesis_nav.ros2_robot.adapter import (
+    LoopbackRobotTransport,
+    Ros2RobotAdapter,
+)
 
 
 class Ros2RobotNotAvailableError(RuntimeError):
     """Raised when --backend ros2_robot is requested but rclpy is missing."""
+
+
+def robot_transport_mode(scenario: Scenario) -> str:
+    """Return ``loopback`` or ``ros2`` for the scenario's real-robot transport.
+
+    ``real_robot.transport: loopback`` closes the loop in-process (no rclpy,
+    deterministic) so the real-robot contract is exercisable without hardware;
+    ``ros2`` (default) talks to a live robot over the rclpy graph.
+    """
+
+    block = scenario.raw.get("real_robot", {}) if scenario.raw else {}
+    mode = str(block.get("transport", "ros2"))
+    if mode not in ("ros2", "loopback"):
+        raise ValueError(
+            f"real_robot.transport must be 'ros2' or 'loopback' (got '{mode}')"
+        )
+    return mode
+
+
+@dataclass
+class LoopbackRobotBackend:
+    """Real-robot backend whose transport closes the loop in-process.
+
+    Builds `Ros2RobotAdapter`s — the *same* adapter the live backend uses — over
+    `LoopbackRobotTransport`s seeded at each agent's spawn pose, so the
+    real-robot path runs end-to-end without `rclpy` or hardware. `step(dt)`
+    integrates each transport, the loopback equivalent of draining odom.
+    """
+
+    command_timeout_sec: float = 0.5
+    adapters: dict[str, Ros2RobotAdapter] = field(default_factory=dict)
+    transports: dict[str, LoopbackRobotTransport] = field(default_factory=dict)
+
+    def step(self, dt_sec: float) -> None:
+        for transport in self.transports.values():
+            transport.integrate(dt_sec)
+
+    def reset(self) -> None:  # symmetry with the other backends
+        return None
+
+    def spawn(self, spec: AgentSpec) -> EmbodimentAdapter:
+        spawn = spec.spawn or (0.0, 0.0, 0.0)
+        transport = LoopbackRobotTransport(x=spawn[0], y=spawn[1], yaw=spawn[2])
+        adapter = Ros2RobotAdapter(
+            agent_id=spec.agent_id,
+            transport=transport,
+            command_timeout_sec=self.command_timeout_sec,
+        )
+        self.adapters[spec.agent_id] = adapter
+        self.transports[spec.agent_id] = transport
+        return adapter
+
+    def shutdown(self) -> None:
+        return None
+
+
+def build_loopback_robot_backend(scenario: Scenario) -> LoopbackRobotBackend:
+    """Build an rclpy-free, loop-closed real-robot backend for the scenario."""
+
+    timeout = float(
+        scenario.raw.get("real_robot", {}).get("command_timeout_sec", 0.5)
+    )
+    return LoopbackRobotBackend(command_timeout_sec=timeout)
 
 
 @dataclass
@@ -144,7 +210,10 @@ def _yaw_from_quaternion(x: float, y: float, z: float, w: float) -> float:
 
 
 __all__ = [
+    "LoopbackRobotBackend",
     "Ros2RobotBackend",
     "Ros2RobotNotAvailableError",
+    "build_loopback_robot_backend",
     "build_ros2_robot_backend",
+    "robot_transport_mode",
 ]

@@ -9,20 +9,28 @@ without `rclpy`.
 
 from genesis_nav.ros2_robot.adapter import (
     FakeRobotTransport,
+    LoopbackRobotTransport,
     RobotTransport,
     Ros2RobotAdapter,
 )
 from genesis_nav.ros2_robot.backend import (
+    LoopbackRobotBackend,
     Ros2RobotBackend,
     Ros2RobotNotAvailableError,
+    build_loopback_robot_backend,
     build_ros2_robot_backend,
+    robot_transport_mode,
 )
 
 __all__ = [
     "FakeRobotTransport",
+    "LoopbackRobotBackend",
+    "LoopbackRobotTransport",
     "RobotTransport",
     "Ros2RobotAdapter",
     "Ros2RobotBackend",
     "Ros2RobotNotAvailableError",
+    "build_loopback_robot_backend",
     "build_ros2_robot_backend",
+    "robot_transport_mode",
 ]
