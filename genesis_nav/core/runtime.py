@@ -31,6 +31,10 @@ from genesis_nav.navigation.grid_planner import (
 )
 from genesis_nav.navigation.obstacles import ObstacleSource, build_obstacle_source
 from genesis_nav.navigation.local_controller import SimpleLocalController
+from genesis_nav.observability.diagnostics import (
+    DiagnosticsReport,
+    collect_diagnostics,
+)
 from genesis_nav.observability.events import EventSink
 
 StepCallback = Callable[[float], None]
@@ -147,6 +151,7 @@ class Runtime:
         self._recovery_resume_at_sec: dict[str, float] = {}
         self._recovery_retries: dict[str, int] = {}
         self._teleop_hold_until: dict[str, float] = {}
+        self._last_diagnostics_emit_sec: float = 0.0
 
     @classmethod
     def from_scenario(
@@ -480,6 +485,32 @@ class Runtime:
             )
         return decision
 
+    def diagnostics(self) -> DiagnosticsReport:
+        """Read-only per-agent health snapshot (OK / WARN / ERROR).
+
+        Folds emergency-stop, fall, task-failure, and adapter command-staleness
+        (the real-robot watchdog) into per-agent levels. Always available; the
+        runtime also emits a periodic `DIAGNOSTICS` event when
+        ``navigation.diagnostics_interval_sec > 0``.
+        """
+
+        return collect_diagnostics(self.registry.list_states(), self.adapters)
+
+    def _maybe_emit_diagnostics(self, *, sim_time: float, episode_id: str) -> None:
+        interval = self.navigation_config.diagnostics_interval_sec
+        if interval <= 0.0:
+            return
+        if sim_time - self._last_diagnostics_emit_sec < interval:
+            return
+        self._last_diagnostics_emit_sec = sim_time
+        report = self.diagnostics()
+        self.events.write(
+            ts=sim_time,
+            episode_id=episode_id,
+            event="DIAGNOSTICS",
+            data=report.to_dict(),
+        )
+
     # ------------------------------------------------------------------ loop
 
     def step(self, *, episode_id: str) -> float:
@@ -491,6 +522,7 @@ class Runtime:
         self._current_episode_id = episode_id
         self._poll_safety_signals(sim_time=sim_time, episode_id=episode_id)
         self._apply_obstacle_updates(sim_time=sim_time, episode_id=episode_id)
+        self._maybe_emit_diagnostics(sim_time=sim_time, episode_id=episode_id)
         if len(self.task_queue) > 0:
             self.dispatch_pending(episode_id=episode_id)
             self.metrics.task_pending_peak = max(

@@ -508,3 +508,36 @@ is sim-time based, a teleop session is reproducible from the run directory.
 metadata rule for command sources. One sharp edge: a teleop command stamped at
 sim time 0 is rejected as stale (freshness requires `issued_at > 0`), which is
 correct for live runs but means the very first tick cannot be teleoperated.
+
+## 2026-05-29: Diagnostics are a folded read-model + optional periodic event
+
+Status: Implemented (v0.2). Realizes the hardware-diagnostics item of Roadmap
+Phase 2 and gives the real-robot command-staleness watchdog a consumer.
+
+Context:
+The real-robot adapter exposes a `watchdog_expired` helper, but nothing
+consumed it, and there was no single place to ask "is this fleet healthy?".
+Health signals were scattered across `AgentState` (`emergency_stopped`,
+`fall_detected`), the behavior machine (`failed`), and per-adapter watchdogs.
+A heavyweight `diagnostic_updater`-style subsystem would dwarf the need.
+
+Decision:
+Add `collect_diagnostics(states, adapters)`, a pure function that folds those
+signals into per-agent `DiagnosticLevel` (`OK < WARN < ERROR`, ordered like
+ROS 2 `diagnostic_msgs`) with an overall = worst-agent level. Adapter signals
+are duck-typed (`watchdog_expired` / `seconds_since_command`), so sim adapters
+that lack them simply do not contribute — the same pattern as
+`_poll_safety_signals`. `Runtime.diagnostics()` wraps it as an always-available
+read-model; `AgentToolApi.get_diagnostics()` exposes it read-only to AI agents
+(safe — no mutation). When `navigation.diagnostics_interval_sec > 0` the step
+loop emits a periodic `DIAGNOSTICS` event so a replay reconstructs the health
+timeline; the default (0) keeps quiet runs quiet.
+
+Consequences:
+The watchdog now has a consumer, and health is one call away for RViz panels,
+AI deliberation, and operators. Because the collector is pure and duck-typed,
+new health axes (battery, temperature, comms loss) are added by raising a level
+inside one function, not by wiring a new subsystem. Emission is off by default
+to avoid bloating event logs; turning it on is a per-scenario knob. The level
+mapping is intentionally coarse (three levels, watchdog = WARN); a richer
+taxonomy (e.g. ROS `STALE`) can be layered later without breaking the contract.

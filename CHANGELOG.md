@@ -37,6 +37,11 @@ ROS 2, and every actuator-bound command still passes `CommandGate`.
   `CommandGate` and, on accept, holds off the autonomy loop for
   `navigation.teleop_hold_sec` so the operator keeps control. Exercised in core
   CI without `rclpy`.
+- **Hardware diagnostics** — `Runtime.diagnostics()` and
+  `AgentToolApi.get_diagnostics()` return a per-agent health report
+  (`OK`/`WARN`/`ERROR`) folding emergency-stop, fall, task-failure, and the
+  real-robot command-staleness watchdog. Optional periodic `DIAGNOSTICS`
+  events via `navigation.diagnostics_interval_sec`.
 - **Observability** — `env.json` records the selected `planner`.
 
 ### Known limitations (carried into v0.2 work)
