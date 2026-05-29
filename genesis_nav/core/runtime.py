@@ -606,6 +606,7 @@ class Runtime:
             # autonomy loop resumes once the other clears. Observation-only
             # detection (COLLISION/NEAR_MISS) still runs regardless.
             if self._should_yield(state.agent_id, previous_pose):
+                state.yielding = True
                 if state.agent_id not in self._yielding:
                     self._yielding.add(state.agent_id)
                     self.metrics.yield_count += 1
@@ -630,6 +631,7 @@ class Runtime:
                 continue
             if state.agent_id in self._yielding:
                 self._yielding.discard(state.agent_id)
+            state.yielding = False
 
             if state.behavior_state is BehaviorState.ASSIGNED:
                 self._transition_behavior(
@@ -1090,6 +1092,9 @@ class Runtime:
             adapter = self.adapters.get(state.agent_id)
             if adapter is None:
                 continue
+            # Recompute the per-agent collision flag from scratch each poll so
+            # the diagnostics read-model reflects the current tick, not edges.
+            state.in_collision = False
             poses.append((state.agent_id, adapter.read_pose()))
 
         for i in range(len(poses)):
@@ -1103,6 +1108,9 @@ class Runtime:
                     cfg.collision_radius_m > 0.0
                     and distance <= cfg.collision_radius_m
                 )
+                if colliding:
+                    self.registry.get_state(id_a).in_collision = True
+                    self.registry.get_state(id_b).in_collision = True
                 near = (
                     cfg.near_miss_radius_m > 0.0
                     and distance <= cfg.near_miss_radius_m

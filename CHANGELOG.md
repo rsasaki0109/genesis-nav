@@ -8,6 +8,14 @@ practice independently.
 
 ## [Unreleased]
 
+### Changed
+- **Diagnostics fold inter-agent proximity** — `Runtime.diagnostics()` /
+  `AgentToolApi.get_diagnostics()` now report `in_collision` (→ ERROR) and
+  `yielding` (→ WARN), maintained by the runtime each tick, so the
+  collision-detection and yield slices surface in the per-agent health
+  read-model and the periodic `DIAGNOSTICS` event (and thus in replays). No
+  change when proximity detection is disabled.
+
 ### Added
 - **Proximity response (yield right-of-way)** — `runtime.collision.yield_radius_m`
   (0 = disabled). An executing agent yields (stops for that tick) while a

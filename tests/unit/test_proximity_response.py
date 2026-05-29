@@ -16,6 +16,7 @@ import yaml
 from genesis_nav.benchmarks.scenario import load_scenario
 from genesis_nav.core.runtime import Runtime
 from genesis_nav.navigation.config import CollisionConfig
+from genesis_nav.observability.diagnostics import DiagnosticLevel
 from genesis_nav.observability.events import JsonlEventWriter
 
 
@@ -118,6 +119,28 @@ def test_yield_resolves_crossing_conflict(tmp_path: Path) -> None:
     assert any(ev["event"] == "AGENT_YIELDED" for ev in events)
     yielded = next(ev for ev in events if ev["event"] == "AGENT_YIELDED")
     assert yielded["agent_id"] == "b"  # lower-priority agent yields
+
+
+def test_yield_surfaces_in_diagnostics(tmp_path: Path) -> None:
+    # Run the real crossing scenario and watch the health read-model: while b
+    # yields it must report WARN with a "yielding" message.
+    scenario = load_scenario(Path("benchmarks/multi_agent/yield_avoidance.yaml"))
+    seen_yield_warn = False
+    with JsonlEventWriter(tmp_path / "e.jsonl") as events:
+        runtime = Runtime.from_scenario(scenario, events)
+        for task in scenario.tasks:
+            runtime.submit_task(task, episode_id="ep")
+
+        def on_step(_sim_time: float) -> None:
+            nonlocal seen_yield_warn
+            b = next(a for a in runtime.diagnostics().agents if a.agent_id == "b")
+            if "yielding" in b.messages and b.level is DiagnosticLevel.WARN:
+                seen_yield_warn = True
+
+        runtime.run_until_idle(
+            episode_id="ep", max_sim_seconds=30.0, on_step=on_step
+        )
+    assert seen_yield_warn, "b's yield must surface as WARN in diagnostics"
 
 
 def test_detection_only_still_collides(tmp_path: Path) -> None:

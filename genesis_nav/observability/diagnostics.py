@@ -67,6 +67,10 @@ def _agent_diagnostic(state: Any, adapter: Any) -> AgentDiagnostic:
         raise_to(DiagnosticLevel.ERROR, "emergency_stopped")
     if getattr(state, "fall_detected", False):
         raise_to(DiagnosticLevel.ERROR, "fall_detected")
+    if getattr(state, "in_collision", False):
+        raise_to(DiagnosticLevel.ERROR, "in_collision")
+    if getattr(state, "yielding", False):
+        raise_to(DiagnosticLevel.WARN, "yielding")
     behavior = getattr(state, "behavior_state", None)
     behavior_name = getattr(behavior, "value", str(behavior))
     if behavior_name == "failed":
