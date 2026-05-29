@@ -19,6 +19,9 @@ class NavigationConfig:
     stuck_min_progress_m: float = 0.05
     recovery_wait_sec: float = 0.5
     max_recovery_retries: int = 3
+    # How long an accepted teleop command holds off the autonomy loop for the
+    # same agent, so the operator keeps control between command bursts.
+    teleop_hold_sec: float = 0.5
     # Planner backend selector. ``auto`` keeps the v0.1 behaviour (grid if the
     # scenario declares an ``occupancy_grid``, else straight line). ``nav2``
     # delegates global planning to a running Nav2 stack (see the 2026-05-29
@@ -55,6 +58,9 @@ class NavigationConfig:
             ),
             max_recovery_retries=int(
                 block.get("max_recovery_retries", cls.max_recovery_retries)
+            ),
+            teleop_hold_sec=float(
+                block.get("teleop_hold_sec", cls.teleop_hold_sec)
             ),
             planner=planner,
         )

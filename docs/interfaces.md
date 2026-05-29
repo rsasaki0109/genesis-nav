@@ -200,6 +200,27 @@ runtime:
   delegates global planning only; routing Nav2's controller `cmd_vel` through
   `CommandGate` as an `AUTONOMY` command is a follow-up.
 
+## Teleop (Operator Override)
+
+`Runtime.submit_teleop_command(agent_id, *, requester_id, linear_x=0.0,
+linear_y=0.0, angular_z=0.0, source="teleop", ttl_ms=None, hold_sec=None)` is
+the transport-agnostic operator entry point (the in-process equivalent of the
+ROS bridge `/cmd_vel` path). It stamps a `TELEOP` command with the operator's
+`requester_id` and current sim time, runs it through `CommandGate`, emits
+`COMMAND_ACCEPTED` / `COMMAND_REJECTED`, and on accept applies it and holds off
+the autonomy loop for `hold_sec` (default `runtime.navigation.teleop_hold_sec`,
+0.5 s). During the hold the agent retains the operator's last command; autonomy
+resumes when it expires. `requester_id` is mandatory. AI callers cannot drive
+actuators through this path — AI-authority velocities are still gate-rejected,
+and teleop authority is the operator's responsibility. A command stamped at sim
+time 0 is rejected as stale.
+
+```yaml
+runtime:
+  navigation:
+    teleop_hold_sec: 0.5
+```
+
 ## World File Contract
 
 Scenario `world` fields point to a Python module that defines:

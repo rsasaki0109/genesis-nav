@@ -471,3 +471,40 @@ to full replans otherwise. The cost is a new event type and a behavior-machine
 edge that every replay consumer must tolerate; that is additive, matching the
 "new transitions inside the same vocabulary" principle from the behavior-state
 ADR.
+
+## 2026-05-29: Teleop is a first-class runtime API; autonomy yields during a hold
+
+Status: Implemented (v0.2). Realizes the teleop-adapter item of Roadmap
+Phase 2 and makes good on the `apply_external_command` docstring's promise that
+"the autonomy loop is suspended for any agent under teleop control".
+
+Context:
+v0.1 only exposed the operator path through the ROS bridge's `/cmd_vel`
+subscription, which inlined the gate-evaluate / event-emit / apply sequence and
+needed `rclpy` to exercise at all. Two problems followed: the
+operator-overrides-autonomy guarantee was untestable without ROS, and nothing
+actually stopped the autonomy loop from re-issuing a command on the very next
+tick and fighting the operator.
+
+Decision:
+Add `Runtime.submit_teleop_command(agent_id, *, requester_id, ...)` as the
+transport-agnostic operator entry point. It stamps a `TELEOP` `RuntimeCommand`
+with the operator's `requester_id` and the current sim time, evaluates it
+through the same `CommandGate`, emits `COMMAND_ACCEPTED` / `COMMAND_REJECTED`,
+and on accept calls `apply_external_command` and records a per-agent teleop
+*hold* (`sim_time + navigation.teleop_hold_sec`). The step loop checks this
+hold and yields the autonomy loop for that agent until it expires, so the
+agent retains the operator's last command instead of being overwritten. The
+hold is tracked in sim time (not the gate's monotonic authority lock) so it
+stays deterministic and replayable. The ROS bridge keeps its own `/cmd_vel`
+path for now; both share `CommandGate` and `apply_external_command`, and
+unifying the bridge onto this API is a follow-up.
+
+Consequences:
+The operator-override contract is now exercised in core CI without `rclpy`,
+and teleop genuinely suppresses autonomy for the hold window. Because the hold
+is sim-time based, a teleop session is reproducible from the run directory.
+`requester_id` is mandatory, satisfying the authority/requester/timestamp
+metadata rule for command sources. One sharp edge: a teleop command stamped at
+sim time 0 is rejected as stale (freshness requires `issued_at > 0`), which is
+correct for live runs but means the very first tick cannot be teleoperated.
