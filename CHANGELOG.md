@@ -9,6 +9,16 @@ practice independently.
 ## [Unreleased]
 
 ### Added
+- **Inter-agent proximity detection** — optional `runtime.collision` block
+  (`collision_radius_m` / `near_miss_radius_m`, both default 0 = disabled). Each
+  tick the runtime measures the planar distance between every agent pair and, on
+  the rising edge of entering a radius, emits a `COLLISION` / `NEAR_MISS` event
+  and bumps `collision_count` / `near_miss_count` (previously dead counters).
+  Observation only — no agent is stopped or rerouted; proximity *response* is a
+  follow-up. New bench predicates `collision_count_min` / `near_miss_count_min`;
+  new guard scenario `benchmarks/multi_agent/near_miss_detection.yaml`.
+
+### Added
 - **Real-robot loop closure (loopback transport)** — `real_robot.transport:
   loopback` selects an rclpy-free `LoopbackRobotTransport` that integrates the
   commanded velocity into odom (same diff-drive model as the fallback), closing

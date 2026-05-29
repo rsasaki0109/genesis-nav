@@ -39,7 +39,9 @@ share state; one scenario's failure does not abort the suite.
    | `watchdog_stop_count_min` | `watchdog_stop_count` | `actual >= value` |
    | `watchdog_stop_count_max` | `watchdog_stop_count` | `actual <= value` |
    | `command_rejection_count_max` | `command_rejection_count` | `actual <= value` |
+   | `collision_count_min` | `collision_count` | `actual >= value` |
    | `collision_count_max` | `collision_count` | `actual <= value` |
+   | `near_miss_count_min` | `near_miss_count` | `actual >= value` |
    | `near_miss_count_max` | `near_miss_count` | `actual <= value` |
    | `emergency_stop_count_max` | `emergency_stop_count` | `actual <= value` |
    | `reservation_conflict_count_max` | `reservation_conflict_count` | `actual <= value` |

@@ -612,3 +612,40 @@ inside one function, not by wiring a new subsystem. Emission is off by default
 to avoid bloating event logs; turning it on is a per-scenario knob. The level
 mapping is intentionally coarse (three levels, watchdog = WARN); a richer
 taxonomy (e.g. ROS `STALE`) can be layered later without breaking the contract.
+
+## 2026-05-29: Inter-agent proximity detection is observation before control
+
+Status: Implemented (v0.2). First step against the v0.1 known limitation "no
+spatial conflict resolution between agents (reservations are lease-based, not
+costmap-aware)".
+
+Context:
+`collision_count` / `near_miss_count` existed in `MetricsSnapshot` and as bench
+predicates, and `COLLISION` was already a replay playback event — but nothing in
+the runtime ever populated them, so `collision_count_max: 0` passed trivially
+and multi-agent scenarios had no spatial-safety signal at all. The full fix —
+costmap-aware reservations and avoidance — is a large subsystem, and the
+project rule is "no plugin systems without an issue" plus "observability and
+metrics are core". So the honest first slice is *detection*, not control.
+
+Decision:
+Add a `runtime.collision` block (`collision_radius_m`, `near_miss_radius_m`,
+both default 0 = disabled) and a `_poll_collisions` step that measures the
+planar distance between every agent pair and, on the rising edge of entering a
+radius, emits `COLLISION` / `NEAR_MISS` and bumps the matching counter. Rising
+edge is tracked per pair (cleared on separation) exactly like the watchdog, so a
+sustained overlap counts once and a re-approach counts again; entering straight
+into collision does not double-fire a near-miss on the way out. It is
+**observation only** — no agent is stopped or rerouted. Disabled by default, so
+existing scenarios and benchmarks are bit-for-bit unchanged.
+
+Consequences:
+The dead counters and bench predicates are now real, and a replay reconstructs
+the spatial-conflict timeline. `benchmarks/multi_agent/near_miss_detection.yaml`
+guards the detector. Because detection is decoupled from response, the next
+slice — proximity *response* (yield / replan / costmap-aware reservation) — can
+build on a tested, observable signal rather than inventing both at once. The
+detector is O(n²) in agents per tick; fine for the current fleet sizes, and a
+spatial hash is a transparent optimization later if needed. Detection runs in
+sim time on the same poses the controller sees (one-tick lag), so it stays
+deterministic and replayable.
