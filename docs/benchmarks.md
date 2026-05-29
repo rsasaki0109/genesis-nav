@@ -8,11 +8,12 @@ block that declares pass/fail thresholds against `metrics.json`.
 
 ```
 benchmarks/
-  nav_basic/      single-agent point-to-goal scenarios
-  multi_agent/    multi-agent dispatch/coordination scenarios
-  runtime/        observability/replay/dispatcher regressions
-  humanoid/       humanoid navigation-intent + fall-stop coverage
-  _runs/          generated run artifacts and suite reports (gitignored)
+  nav_basic/         single-agent point-to-goal scenarios
+  multi_agent/       multi-agent dispatch/coordination scenarios
+  runtime/           observability/replay/dispatcher regressions
+  humanoid/          humanoid navigation-intent + fall-stop coverage
+  nav2_integration/  Nav2-delegated scenarios (integration-only)
+  _runs/             generated run artifacts and suite reports (gitignored)
 ```
 
 Every scenario file is a self-contained `gnav run` input. Suites do not
@@ -50,6 +51,30 @@ share state; one scenario's failure does not abort the suite.
 
 4. Keep the scenario **deterministic**: fix `seed`, keep `max_sim_seconds`
    tight, avoid wall-clock dependence.
+
+## Integration-only Scenarios
+
+A scenario whose result depends on an **external stack** (e.g. a live Nav2
+`ComputePathToPose` server) cannot be deterministic and so does not belong in
+the regression set. Mark it with `benchmark.integration: true`:
+
+```yaml
+benchmark:
+  integration: true
+  expected:
+    success_rate_min: 1.0
+```
+
+`gnav bench --run` skips such scenarios by default — recording each under the
+report's `skipped` array (with a `reason`) and logging the skip to stderr, so
+coverage is never silently truncated. Pass `--include-integration` to run them
+against a real stack:
+
+```bash
+gnav bench --run benchmarks/nav2_integration --include-integration
+```
+
+`benchmarks/nav2_integration/` is the reference suite (`planner: nav2`).
 
 ## Running a Suite
 

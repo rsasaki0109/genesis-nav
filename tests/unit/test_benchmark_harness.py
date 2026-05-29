@@ -10,6 +10,7 @@ from genesis_nav.benchmarks.report import (
     BenchmarkScenarioResult,
     BenchmarkSuiteReport,
     discover_scenarios,
+    is_integration_scenario,
 )
 from genesis_nav.cli.main import main
 
@@ -72,6 +73,36 @@ def test_expectation_from_scenario_raw_handles_missing_block() -> None:
     expectation = BenchmarkExpectation.from_scenario_raw({})
     assert expectation.raw == {}
     assert expectation.evaluate({"success_rate": 1.0}) == []
+
+
+def test_is_integration_scenario_flag() -> None:
+    assert is_integration_scenario({"benchmark": {"integration": True}}) is True
+    assert is_integration_scenario({"benchmark": {"integration": False}}) is False
+    assert is_integration_scenario({"benchmark": {}}) is False
+    assert is_integration_scenario({}) is False
+
+
+def test_bench_run_skips_integration_scenario_by_default(tmp_path: Path) -> None:
+    report_path = tmp_path / "report.json"
+    rc = main(
+        [
+            "bench",
+            "--run",
+            "benchmarks/nav2_integration",
+            "--output-dir",
+            str(tmp_path / "_runs"),
+            "--report",
+            str(report_path),
+        ]
+    )
+    # All scenarios are integration-only, so nothing runs, nothing fails.
+    assert rc == 0
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["total"] == 0
+    assert report["passed"] == 0
+    assert report["skipped_count"] == 1
+    assert report["skipped"][0]["scenario_id"] == "bench_nav2_integration_single_agent"
+    assert "integration" in report["skipped"][0]["reason"]
 
 
 def test_discover_scenarios_returns_sorted_yaml_files() -> None:

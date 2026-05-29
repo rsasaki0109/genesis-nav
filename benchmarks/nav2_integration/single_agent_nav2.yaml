@@ -1,0 +1,49 @@
+scenario_id: bench_nav2_integration_single_agent
+seed: 42
+world: examples/worlds/warehouse_small.py
+max_sim_seconds: 30
+# Delegates global planning to a live Nav2 stack. This scenario needs an
+# external ComputePathToPose action server running, so it is NOT part of the
+# deterministic regression set: `gnav bench --run` skips it unless
+# --include-integration is passed (see benchmark.integration below).
+runtime:
+  navigation:
+    planner: nav2
+nav2:
+  compute_path_action: compute_path_to_pose
+  frame_id: map
+  timeout_sec: 5.0
+agents:
+  - id: robot_001
+    type: diff_drive
+    namespace: /robot_001
+    spawn: [0.0, 0.0, 0.0]
+    frames:
+      map: map
+      odom: robot_001/odom
+      base: robot_001/base_link
+    capabilities:
+      - navigate_2d
+      - stop
+      - report_pose
+    authority:
+      mode: autonomous
+      command_ttl_ms: 200
+tasks:
+  - id: task_001
+    type: navigate_to_pose
+    agent: robot_001
+    goal: [2.0, 1.0, 0.0]
+metrics:
+  - success_rate
+  - time_to_goal
+record:
+  rosbag: false
+  events: true
+benchmark:
+  integration: true
+  expected:
+    success_rate_min: 1.0
+    task_succeeded_count_min: 1
+    task_failed_count_max: 0
+    command_rejection_count_max: 0

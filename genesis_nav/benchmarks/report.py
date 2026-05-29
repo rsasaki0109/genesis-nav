@@ -94,6 +94,18 @@ class BenchmarkExpectation:
         return failures
 
 
+def is_integration_scenario(scenario_raw: Mapping[str, Any]) -> bool:
+    """True when a scenario declares ``benchmark.integration: true``.
+
+    Integration scenarios depend on an external stack (e.g. a running Nav2
+    server) and so are not part of the deterministic regression set. `gnav
+    bench --run` skips them unless ``--include-integration`` is passed.
+    """
+
+    bench_block = scenario_raw.get("benchmark") or {}
+    return bool(bench_block.get("integration", False))
+
+
 def _coerce_number(value: Any) -> float | None:
     if value is None:
         return None
@@ -127,6 +139,7 @@ class BenchmarkSuiteReport:
     benchmark_suite: str
     ran_at: str
     scenarios: list[BenchmarkScenarioResult]
+    skipped: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def total(self) -> int:
@@ -147,7 +160,9 @@ class BenchmarkSuiteReport:
             "total": self.total,
             "passed": self.passed,
             "failed": self.failed,
+            "skipped_count": len(self.skipped),
             "scenarios": [s.to_dict() for s in self.scenarios],
+            "skipped": list(self.skipped),
         }
 
 
@@ -168,5 +183,6 @@ __all__ = [
     "BenchmarkScenarioResult",
     "BenchmarkSuiteReport",
     "discover_scenarios",
+    "is_integration_scenario",
     "now_iso",
 ]
