@@ -1,17 +1,19 @@
-"""Build a `Nav2Planner` backed by a live `rclpy` ComputePathToPose client.
+"""Build live `rclpy`-backed Nav2 backends (planner + controller).
 
-`build_nav2_planner` is the only entry point that imports `rclpy` and
-`nav2_msgs`. If they are missing it raises `Nav2NotAvailableError` with an
-actionable hint instead of failing deep inside the runtime.
+`build_nav2_planner` / `build_nav2_controller` are the only entry points that
+import `rclpy` / `nav2_msgs` / `geometry_msgs`. If they are missing they raise
+`Nav2NotAvailableError` with an actionable hint instead of failing deep inside
+the runtime.
 """
 
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from genesis_nav.benchmarks.scenario import Scenario
+from genesis_nav.nav2.controller import Nav2Controller, Velocity
 from genesis_nav.nav2.planner import Nav2Planner
 
 
@@ -40,6 +42,28 @@ def build_nav2_planner(scenario: Scenario) -> Nav2Planner:
     return Nav2Planner(service)
 
 
+def build_nav2_controller(scenario: Scenario) -> Nav2Controller:
+    """Build a Nav2-controller-delegating local controller for the scenario.
+
+    Subscribes to each agent's Nav2 controller `cmd_vel` and feeds the latest
+    velocity back into the runtime, where it still traverses `CommandGate` as
+    an ``AUTONOMY`` command. Raises `Nav2NotAvailableError` if the ROS 2
+    surface is not importable.
+    """
+
+    rclpy = _require_rclpy("runtime.navigation.controller: nav2")
+    if not rclpy.ok():
+        rclpy.init()
+    node = rclpy.create_node("genesis_nav_nav2_controller")
+    block = scenario.raw.get("nav2", {}) if scenario.raw else {}
+    cmd_vel_topic = str(block.get("cmd_vel_topic", "/{agent}/cmd_vel"))
+    spin_sec = float(block.get("controller_spin_sec", 0.05))
+    service = _RclpyNav2ControllerService(
+        node=node, cmd_vel_topic=cmd_vel_topic, spin_sec=spin_sec
+    )
+    return Nav2Controller(service)
+
+
 def _require_nav2() -> Any:
     try:
         import rclpy  # noqa: F401
@@ -51,6 +75,20 @@ def _require_nav2() -> Any:
             "rclpy / nav2_msgs are not importable. Source a ROS 2 + Nav2 "
             "environment (e.g. `source /opt/ros/jazzy/setup.bash`) before "
             "selecting runtime.navigation.planner: nav2."
+        ) from exc
+
+
+def _require_rclpy(selector: str) -> Any:
+    try:
+        import rclpy  # noqa: F401
+        from geometry_msgs.msg import Twist  # noqa: F401
+
+        return rclpy
+    except ImportError as exc:
+        raise Nav2NotAvailableError(
+            "rclpy / geometry_msgs are not importable. Source a ROS 2 + Nav2 "
+            "environment (e.g. `source /opt/ros/jazzy/setup.bash`) before "
+            f"selecting {selector}."
         ) from exc
 
 
@@ -118,4 +156,55 @@ class _RclpyNav2PathService:
         return (float(p.x), float(p.y), math.atan2(siny_cosp, cosy_cosp))
 
 
-__all__ = ["Nav2NotAvailableError", "build_nav2_planner"]
+@dataclass
+class _RclpyNav2ControllerService:
+    """`Nav2ControllerService` backed by Nav2 controller `cmd_vel` topics.
+
+    Lazily subscribes (per agent) to the controller server's `cmd_vel`, caches
+    the most recent `Twist`, and returns it on `compute_velocity`. Returns
+    ``None`` until the first message arrives so `Nav2Controller` falls back to
+    the in-tree controller while Nav2 spins up.
+    """
+
+    node: Any
+    cmd_vel_topic: str
+    spin_sec: float
+    _latest: dict[str, Velocity] = field(default_factory=dict)
+    _subs: dict[str, Any] = field(default_factory=dict)
+
+    def compute_velocity(
+        self,
+        agent_id: str,
+        pose: tuple[float, float, float],
+        target: tuple[float, float, float],
+    ) -> Velocity | None:
+        import rclpy
+
+        self._ensure_subscription(agent_id)
+        rclpy.spin_once(self.node, timeout_sec=self.spin_sec)
+        return self._latest.get(agent_id)
+
+    def _ensure_subscription(self, agent_id: str) -> None:
+        if agent_id in self._subs:
+            return
+        from geometry_msgs.msg import Twist
+
+        topic = self.cmd_vel_topic.format(agent=agent_id)
+
+        def _on_twist(msg: Any, _agent_id: str = agent_id) -> None:
+            self._latest[_agent_id] = (
+                float(msg.linear.x),
+                float(msg.linear.y),
+                float(msg.angular.z),
+            )
+
+        self._subs[agent_id] = self.node.create_subscription(
+            Twist, topic, _on_twist, 10
+        )
+
+
+__all__ = [
+    "Nav2NotAvailableError",
+    "build_nav2_controller",
+    "build_nav2_planner",
+]

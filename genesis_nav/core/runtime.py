@@ -186,6 +186,7 @@ class Runtime:
         resources = ResourceCatalog.from_scenario(scenario.raw)
         navigation_config = NavigationConfig.from_scenario_raw(scenario.raw)
         planner = cls._select_planner(scenario, navigation_config)
+        controller = cls._select_controller(scenario, navigation_config)
         obstacle_source = build_obstacle_source(scenario.raw)
         return cls(
             registry=registry,
@@ -195,6 +196,7 @@ class Runtime:
             adapters=adapters,
             resources=resources,
             planner=planner,
+            controller=controller,
             navigation_config=navigation_config,
             obstacle_source=obstacle_source,
         )
@@ -224,6 +226,23 @@ class Runtime:
 
             return build_nav2_planner(scenario)
         return grid or StraightLinePlanner()
+
+    @staticmethod
+    def _select_controller(scenario: Scenario, navigation_config: NavigationConfig):  # type: ignore[no-untyped-def]
+        """Choose the local controller from ``runtime.navigation.controller``.
+
+        ``local`` (default) keeps the in-tree `SimpleLocalController`. ``nav2``
+        delegates velocity generation to a running Nav2 controller server via a
+        lazily-imported `rclpy` bridge; that `cmd_vel` still traverses
+        `CommandGate` as an ``AUTONOMY`` command on the autonomy path (see the
+        2026-05-29 Nav2 ADR).
+        """
+
+        if navigation_config.controller == "nav2":
+            from genesis_nav.nav2.bridge import build_nav2_controller
+
+            return build_nav2_controller(scenario)
+        return SimpleLocalController()
 
     # ------------------------------------------------------------------ tasks
 
@@ -709,6 +728,7 @@ class Runtime:
                             "linear_x": decision.command.linear_x,
                             "angular_z": decision.command.angular_z,
                             "authority": decision.command.authority.value,
+                            "source": decision.command.source,
                         },
                     )
                 self._update_stuck_detection(

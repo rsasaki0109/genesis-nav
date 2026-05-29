@@ -206,9 +206,37 @@ runtime:
   captures which Nav2 it ran against. `nav2` benchmark scenarios are marked
   `benchmark.integration: true` so the deterministic regression set skips them
   unless `--include-integration` is passed (see the Benchmark Report Schema
-  section and `benchmarks/nav2_integration/`). This slice delegates global
-  planning only; routing Nav2's controller `cmd_vel` through `CommandGate` as
-  an `AUTONOMY` command is the remaining follow-up.
+  section and `benchmarks/nav2_integration/`).
+
+## Controller Backends
+
+The local controller is selected by `runtime.navigation.controller`:
+
+```yaml
+runtime:
+  navigation:
+    controller: local   # local | nav2
+```
+
+- `local` (default) — the in-tree `SimpleLocalController` chases waypoints in
+  process. Matches v0.1 behaviour.
+- `nav2` — delegate velocity generation to a running Nav2 controller server.
+  `Nav2Controller` is a drop-in for `SimpleLocalController` backed by the
+  `genesis_nav.nav2.Nav2ControllerService` boundary (real bridge subscribes to
+  each agent's `cmd_vel`; `FakeNav2ControllerService` makes it unit-testable
+  without ROS 2). **The Nav2 `cmd_vel` still traverses `CommandGate` as an
+  `AUTONOMY` command on the runtime's existing autonomy path before it reaches
+  the actuator** — a non-finite or over-limit Nav2 velocity is rejected and the
+  agent stopped, exactly as for the in-tree controller. genesis-nav never lets
+  Nav2 drive the actuator directly. When Nav2 has no command yet (server not
+  ready, no path), the controller falls back to `SimpleLocalController` so
+  motion degrades gracefully. `COMMAND_ACCEPTED` events now carry `source`
+  (`navigation` | `nav2_controller` | …) so a replay shows which controller
+  drove each accepted command. Optional scenario keys (under `nav2:`):
+  `cmd_vel_topic` (default `/{agent}/cmd_vel`), `controller_spin_sec`.
+
+  Like `planner: nav2`, this needs an external Nav2 stack, so scenarios using
+  it are marked `benchmark.integration: true` (see `benchmarks/nav2_integration/`).
 
 ## Teleop (Operator Override)
 

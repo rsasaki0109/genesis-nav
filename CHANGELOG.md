@@ -9,6 +9,18 @@ practice independently.
 ## [Unreleased]
 
 ### Added
+- **Nav2 controller delegation** — `runtime.navigation.controller: local |
+  nav2`. `nav2` delegates velocity generation to a running Nav2 controller
+  server via the `genesis_nav.nav2.Nav2ControllerService` boundary.
+  `Nav2Controller` is a drop-in for `SimpleLocalController`, so Nav2's `cmd_vel`
+  flows through the **existing `CommandGate` autonomy path** before reaching the
+  actuator — a non-finite/over-limit Nav2 velocity is rejected and the agent
+  stopped, and genesis-nav never lets Nav2 drive the actuator directly. Falls
+  back to the in-tree controller when Nav2 has no command yet.
+  `COMMAND_ACCEPTED` events now carry `source` (`navigation` | `nav2_controller`
+  | …). `FakeNav2ControllerService` keeps it unit-testable without ROS 2.
+
+### Added
 - **Dynamic-obstacle benchmark** — `benchmarks/nav_basic/dynamic_obstacle_replan.yaml`
   guards the replan path via `gnav bench` (`obstacle_event_count_min`,
   `replan_count_min` predicates). `metrics.json` now exposes `replan_count` and

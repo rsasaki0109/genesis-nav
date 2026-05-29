@@ -30,8 +30,15 @@ class NavigationConfig:
     # delegates global planning to a running Nav2 stack (see the 2026-05-29
     # Nav2 ADR). Generalizes the grid|straight selector requested in issue #9.
     planner: str = "auto"
+    # Local controller backend selector. ``local`` (default) keeps the v0.1
+    # `SimpleLocalController` that chases waypoints in-process. ``nav2``
+    # delegates velocity generation to a running Nav2 controller server; that
+    # `cmd_vel` still traverses `CommandGate` as an ``AUTONOMY`` command before
+    # it reaches the actuator (see the 2026-05-29 Nav2 ADR).
+    controller: str = "local"
 
     PLANNER_CHOICES = ("auto", "grid", "straight", "nav2")
+    CONTROLLER_CHOICES = ("local", "nav2")
 
     @classmethod
     def from_scenario_raw(cls, raw: dict[str, Any] | None) -> "NavigationConfig":
@@ -45,6 +52,13 @@ class NavigationConfig:
             choices = ", ".join(cls.PLANNER_CHOICES)
             raise ValueError(
                 f"runtime.navigation.planner must be one of: {choices} (got '{planner}')"
+            )
+        controller = str(block.get("controller", cls.controller))
+        if controller not in cls.CONTROLLER_CHOICES:
+            choices = ", ".join(cls.CONTROLLER_CHOICES)
+            raise ValueError(
+                f"runtime.navigation.controller must be one of: {choices} "
+                f"(got '{controller}')"
             )
         return cls(
             waypoint_tolerance_m=float(
@@ -69,6 +83,7 @@ class NavigationConfig:
                 block.get("diagnostics_interval_sec", cls.diagnostics_interval_sec)
             ),
             planner=planner,
+            controller=controller,
         )
 
 

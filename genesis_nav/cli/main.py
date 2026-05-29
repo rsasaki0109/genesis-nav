@@ -190,7 +190,7 @@ def run_command(args: argparse.Namespace) -> int:
             )
         except Nav2NotAvailableError as exc:
             print(
-                f"runtime.navigation.planner: nav2 unavailable: {exc}",
+                f"runtime.navigation: nav2 unavailable: {exc}",
                 file=sys.stderr,
             )
             return 4
