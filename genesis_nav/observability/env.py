@@ -26,6 +26,7 @@ def collect_env_metadata(
     mode: str,
     ros_enabled: bool,
     record_rosbag: bool,
+    planner: str = "auto",
     repo_root: Path | None = None,
 ) -> dict[str, Any]:
     """Return a JSON-serializable run-environment snapshot."""
@@ -34,6 +35,7 @@ def collect_env_metadata(
         "scenario_id": scenario_id,
         "seed": seed,
         "backend": backend,
+        "planner": planner,
         "mode": mode,
         "ros_enabled": bool(ros_enabled),
         "record_rosbag": bool(record_rosbag),

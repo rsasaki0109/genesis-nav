@@ -6,6 +6,40 @@ project follows [Semantic Versioning](https://semver.org/) for the Python
 package; the ROS 2 packages under `ros2_ws/src/` follow ROS 2 release
 practice independently.
 
+## [Unreleased]
+
+v0.2 groundwork. The three design ADRs dated 2026-05-29 in
+`docs/decisions.md` are now backed by tested, sim-first slices. Each keeps
+all `rclpy` use behind a boundary so the core stays unit-testable without
+ROS 2, and every actuator-bound command still passes `CommandGate`.
+
+### Added
+
+- **Real-robot backend** — `gnav run --backend ros2_robot` drives a real
+  robot as an ordinary `EmbodimentAdapter` over `/<agent>/cmd_vel` +
+  `/<agent>/odom`. All ROS use is behind `genesis_nav.ros2_robot.RobotTransport`
+  (`FakeRobotTransport` for tests); a command-staleness watchdog helper is
+  included.
+- **Dynamic obstacles + replan** — scenarios may declare timestamped grid
+  deltas (`dynamic_obstacles.events`). Executing agents whose remaining path
+  is newly blocked re-enter `planning` (new `executing → planning` behavior
+  edge), replan around the obstacle (`REPLAN_TRIGGERED`), and continue. Each
+  delta is recorded as an `OBSTACLE_CHANGED` event so replays reconstruct the
+  obstacle timeline. New counters `replan_count`, `obstacle_event_count`;
+  `examples/scenarios/dynamic_obstacle.yaml` demonstrates it.
+- **Nav2 planner backend** — `runtime.navigation.planner: auto | grid |
+  straight | nav2`. `nav2` delegates global planning to a running Nav2 stack
+  via a `ComputePathToPose` action behind `genesis_nav.nav2.Nav2PathService`,
+  while genesis-nav stays the runtime/arbiter. Generalizes the selector from
+  issue #9.
+- **Observability** — `env.json` records the selected `planner`.
+
+### Known limitations (carried into v0.2 work)
+
+- Real-robot watchdog auto-poll, Nav2 controller `cmd_vel` through
+  `CommandGate`, and `env.json` Nav2 version capture are documented
+  follow-ups (see the 2026-05-29 ADRs and `docs/experiments.md`).
+
 ## [0.1.0] — 2026-05-29
 
 The first tagged release. v0.1 closes PLAN.md §9 workstreams F / G / H / I /
@@ -64,4 +98,5 @@ adapters are deferred to v0.2 (see issue #10).
 - No Nav2 plugin bridge (intentional — see ADR in `docs/decisions.md`).
 - No real-robot adapters yet; the path is via the ROS 2 contract.
 
+[Unreleased]: https://github.com/rsasaki0109/genesis-nav/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/rsasaki0109/genesis-nav/releases/tag/v0.1.0

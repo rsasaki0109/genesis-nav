@@ -449,7 +449,8 @@ Every `gnav run` writes a self-contained directory under `--output-dir`
 - `resolved_config.yaml` — the parsed scenario after schema normalization.
 - `env.json` — host metadata: git sha/branch/dirty, ROS distro, Genesis
   version (if importable), Python version, hostname, platform, scenario
-  id/seed, backend (`fallback` | `genesis` | `ros2_robot`), mode (`fast` | `realtime`),
+  id/seed, backend (`fallback` | `genesis` | `ros2_robot`),
+  planner (`auto` | `grid` | `straight` | `nav2`), mode (`fast` | `realtime`),
   `ros_enabled`, `record_rosbag`.
 - `events.jsonl` — one JSON record per line, each carrying `ts`,
   `episode_id`, `event`, optional `agent_id`/`task_id`/`data`. The first
