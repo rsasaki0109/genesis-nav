@@ -24,7 +24,12 @@ from genesis_nav.humanoid.adapter import HumanoidIntentAdapter
 from genesis_nav.navigation.behavior import BehaviorState, can_transition
 from genesis_nav.navigation.config import NavigationConfig
 from genesis_nav.navigation.global_planner import StraightLinePlanner
-from genesis_nav.navigation.grid_planner import PlannerError, build_planner
+from genesis_nav.navigation.grid_planner import (
+    GridAStarPlanner,
+    PlannerError,
+    build_planner,
+)
+from genesis_nav.navigation.obstacles import ObstacleSource, build_obstacle_source
 from genesis_nav.navigation.local_controller import SimpleLocalController
 from genesis_nav.observability.events import EventSink
 
@@ -59,6 +64,8 @@ class RuntimeMetrics:
     stuck_event_count: int = 0
     recovery_count: int = 0
     plan_failure_count: int = 0
+    replan_count: int = 0
+    obstacle_event_count: int = 0
 
     def summary(self) -> dict[str, float | int]:
         total = len(self.tasks)
@@ -90,6 +97,8 @@ class RuntimeMetrics:
             "stuck_event_count": self.stuck_event_count,
             "recovery_count": self.recovery_count,
             "plan_failure_count": self.plan_failure_count,
+            "replan_count": self.replan_count,
+            "obstacle_event_count": self.obstacle_event_count,
         }
 
 
@@ -111,6 +120,7 @@ class Runtime:
         resources: ResourceCatalog | None = None,
         planner: object | None = None,
         navigation_config: NavigationConfig | None = None,
+        obstacle_source: ObstacleSource | None = None,
     ) -> None:
         self.registry = registry
         self.command_gate = command_gate
@@ -129,6 +139,7 @@ class Runtime:
         self._current_episode_id: str = ""
         self.planner = planner or StraightLinePlanner()
         self.navigation_config = navigation_config or NavigationConfig()
+        self._obstacle_source = obstacle_source
         self._waypoints: dict[str, list[tuple[float, float, float]]] = {}
         self._pose_history: dict[
             str, deque[tuple[float, float, float]]
@@ -164,6 +175,7 @@ class Runtime:
         resources = ResourceCatalog.from_scenario(scenario.raw)
         planner = build_planner(scenario.raw) or StraightLinePlanner()
         navigation_config = NavigationConfig.from_scenario_raw(scenario.raw)
+        obstacle_source = build_obstacle_source(scenario.raw)
         return cls(
             registry=registry,
             command_gate=CommandGate(),
@@ -173,6 +185,7 @@ class Runtime:
             resources=resources,
             planner=planner,
             navigation_config=navigation_config,
+            obstacle_source=obstacle_source,
         )
 
     # ------------------------------------------------------------------ tasks
@@ -373,6 +386,7 @@ class Runtime:
         self.metrics.sim_steps += 1
         self._current_episode_id = episode_id
         self._poll_safety_signals(sim_time=sim_time, episode_id=episode_id)
+        self._apply_obstacle_updates(sim_time=sim_time, episode_id=episode_id)
         if len(self.task_queue) > 0:
             self.dispatch_pending(episode_id=episode_id)
             self.metrics.task_pending_peak = max(
@@ -839,6 +853,129 @@ class Runtime:
                 self.registry.emergency_stop(state.agent_id, True)
             elif not fallen and state.fall_detected:
                 state.fall_detected = False
+
+    def _apply_obstacle_updates(self, *, sim_time: float, episode_id: str) -> None:
+        """Apply due obstacle deltas and replan affected executing agents.
+
+        Deltas mutate the grid the planner runs against and are recorded as
+        ``OBSTACLE_CHANGED`` events so a replay reconstructs the obstacle
+        timeline. Only agents whose remaining path crosses a newly blocked
+        cell are replanned; everyone else keeps their plan.
+        """
+
+        source = self._obstacle_source
+        if source is None or not isinstance(self.planner, GridAStarPlanner):
+            return
+        due = source.due(sim_time)
+        if not due:
+            return
+
+        newly_blocked: set[tuple[int, int]] = set()
+        for delta in due:
+            grid = self.planner.grid
+            in_bounds = [(c, r) for c, r in delta.block if grid.in_bounds(c, r)]
+            self.planner.grid = grid.with_blocked(delta.block)
+            self.metrics.obstacle_event_count += 1
+            newly_blocked.update(in_bounds)
+            self.events.write(
+                ts=sim_time,
+                episode_id=episode_id,
+                event="OBSTACLE_CHANGED",
+                data={"blocked_cells": [list(c) for c in in_bounds]},
+            )
+        if not newly_blocked:
+            return
+
+        for state in self.registry.list_states():
+            if state.behavior_state is not BehaviorState.EXECUTING:
+                continue
+            if not state.current_task_id:
+                continue
+            adapter = self.adapters.get(state.agent_id)
+            if adapter is None:
+                continue
+            pose = adapter.read_pose()
+            if not self._path_hits_cells(state.agent_id, pose, newly_blocked):
+                continue
+            self._replan_agent(state, pose, sim_time=sim_time, episode_id=episode_id)
+
+    def _path_hits_cells(
+        self,
+        agent_id: str,
+        pose: tuple[float, float, float],
+        blocked: set[tuple[int, int]],
+    ) -> bool:
+        """True if the agent's remaining path crosses any ``blocked`` cell.
+
+        Waypoints are sparse (colinear points are dropped), so each segment is
+        sampled at half-cell steps before mapping to grid cells.
+        """
+
+        queue = self._waypoints.get(agent_id)
+        if not queue or not isinstance(self.planner, GridAStarPlanner):
+            return False
+        grid = self.planner.grid
+        step = grid.resolution * 0.5
+        points = [pose, *queue]
+        for a, b in zip(points, points[1:]):
+            dist = math.hypot(b[0] - a[0], b[1] - a[1])
+            samples = max(1, int(dist / step))
+            for i in range(samples + 1):
+                t = i / samples
+                x = a[0] + (b[0] - a[0]) * t
+                y = a[1] + (b[1] - a[1]) * t
+                if grid.world_to_cell(x, y) in blocked:
+                    return True
+        return False
+
+    def _replan_agent(
+        self,
+        state,  # type: ignore[no-untyped-def]
+        pose: tuple[float, float, float],
+        *,
+        sim_time: float,
+        episode_id: str,
+    ) -> None:
+        task_id = state.current_task_id
+        goal = state.current_goal
+        if goal is None:
+            return
+        self._transition_behavior(
+            state,
+            BehaviorState.PLANNING,
+            ts=sim_time,
+            episode_id=episode_id,
+            reason="obstacle_replan",
+            task_id=task_id,
+        )
+        planned = self._run_planner(
+            state.agent_id, pose, goal, sim_time, episode_id, task_id
+        )
+        if planned is None:
+            self._fail_task(
+                state, task_id, sim_time, episode_id, reason="blocked"
+            )
+            return
+        self._waypoints[state.agent_id] = planned
+        self._pose_history[state.agent_id] = deque()
+        self._recovery_retries[state.agent_id] = 0
+        self.metrics.replan_count += 1
+        self.events.write(
+            ts=sim_time,
+            episode_id=episode_id,
+            agent_id=state.agent_id,
+            event="REPLAN_TRIGGERED",
+            task_id=task_id,
+            data={"waypoint_count": len(planned), "reason": "obstacle"},
+        )
+        self._transition_behavior(
+            state,
+            BehaviorState.EXECUTING,
+            ts=sim_time,
+            episode_id=episode_id,
+            reason="replan_ready",
+            task_id=task_id,
+        )
 
     def _emit_command_rejected(
         self,
