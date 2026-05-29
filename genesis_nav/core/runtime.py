@@ -70,6 +70,7 @@ class RuntimeMetrics:
     plan_failure_count: int = 0
     replan_count: int = 0
     obstacle_event_count: int = 0
+    watchdog_stop_count: int = 0
 
     def summary(self) -> dict[str, float | int]:
         total = len(self.tasks)
@@ -103,6 +104,7 @@ class RuntimeMetrics:
             "plan_failure_count": self.plan_failure_count,
             "replan_count": self.replan_count,
             "obstacle_event_count": self.obstacle_event_count,
+            "watchdog_stop_count": self.watchdog_stop_count,
         }
 
 
@@ -152,6 +154,9 @@ class Runtime:
         self._recovery_retries: dict[str, int] = {}
         self._teleop_hold_until: dict[str, float] = {}
         self._last_diagnostics_emit_sec: float = 0.0
+        # Agents whose real-robot command-staleness watchdog has already tripped,
+        # so the rising edge fires the safety stop exactly once.
+        self._watchdog_tripped: set[str] = set()
 
     @classmethod
     def from_scenario(
@@ -952,17 +957,18 @@ class Runtime:
     def _poll_safety_signals(self, *, sim_time: float, episode_id: str) -> None:
         """Detect rising-edge safety conditions from adapters.
 
-        v0.1 only watches humanoid ``fall_detected``. Adapters without the
-        attribute are ignored. On the rising edge we emit ``FALL_DETECTED``
-        (the observation) followed by ``SAFETY_STOP`` (the action), then
-        set the registry's emergency-stop flag so the existing per-task
-        branch handles ``adapter.stop`` and ``COMMAND_REJECTED`` uniformly.
+        Watches humanoid ``fall_detected`` and the real-robot command-staleness
+        watchdog. Adapters without those signals are ignored. On the rising edge
+        we emit the observation followed by ``SAFETY_STOP`` (the action), then
+        set the registry's emergency-stop flag so the existing per-task branch
+        handles ``adapter.stop`` and ``COMMAND_REJECTED`` uniformly.
         """
 
         for state in self.registry.list_states():
             adapter = self.adapters.get(state.agent_id)
             if adapter is None:
                 continue
+            self._poll_command_watchdog(adapter, state, sim_time, episode_id)
             fallen = bool(getattr(adapter, "fall_detected", False))
             if fallen and not state.fall_detected:
                 state.fall_detected = True
@@ -995,6 +1001,56 @@ class Runtime:
                 self.registry.emergency_stop(state.agent_id, True)
             elif not fallen and state.fall_detected:
                 state.fall_detected = False
+
+    def _poll_command_watchdog(
+        self, adapter: EmbodimentAdapter, state, sim_time: float, episode_id: str
+    ) -> None:
+        """Trip a safety stop when a real-robot command watchdog expires.
+
+        The watchdog runs on the transport's *monotonic* clock (wall time), not
+        sim time, because it guards against real comms loss / a stalled command
+        pipeline — a condition sim time cannot represent. Adapters without a
+        ``watchdog_expired`` method (the fallback, Genesis, and humanoid
+        adapters) never participate, so this is a no-op in pure-sim runs.
+
+        Rising-edge only. Unlike the per-task emergency-stop branch, this stops
+        the actuator directly so a real base is zeroed even when no task is
+        active (e.g. an operator teleops then stops streaming). It is latched:
+        the stop does not auto-clear when commands resume — an operator must
+        clear the emergency stop, matching how comms-loss is handled on real
+        hardware.
+        """
+
+        check = getattr(adapter, "watchdog_expired", None)
+        if not callable(check):
+            return
+        agent_id = state.agent_id
+        expired = bool(check())
+        if expired and agent_id not in self._watchdog_tripped:
+            self._watchdog_tripped.add(agent_id)
+            self.metrics.watchdog_stop_count += 1
+            seconds_since = getattr(adapter, "seconds_since_command", None)
+            age = seconds_since() if callable(seconds_since) else None
+            self.events.write(
+                ts=sim_time,
+                episode_id=episode_id,
+                agent_id=agent_id,
+                event="SAFETY_STOP",
+                task_id=state.current_task_id,
+                data={
+                    "reason": "command_watchdog",
+                    "scope": "agent",
+                    "source": "ros2_robot_adapter",
+                    "command_age_sec": age,
+                },
+            )
+            adapter.stop("command_watchdog")
+            state.linear_velocity_x = 0.0
+            state.linear_velocity_y = 0.0
+            state.angular_velocity_z = 0.0
+            self.registry.emergency_stop(agent_id, True)
+        elif not expired and agent_id in self._watchdog_tripped:
+            self._watchdog_tripped.discard(agent_id)
 
     def _apply_obstacle_updates(self, *, sim_time: float, episode_id: str) -> None:
         """Apply due obstacle deltas and replan affected executing agents.

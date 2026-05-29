@@ -35,6 +35,8 @@ share state; one scenario's failure does not abort the suite.
    | `sim_steps_min` | `sim_steps` | `actual >= value` |
    | `replan_count_min` | `replan_count` | `actual >= value` |
    | `obstacle_event_count_min` | `obstacle_event_count` | `actual >= value` |
+   | `watchdog_stop_count_min` | `watchdog_stop_count` | `actual >= value` |
+   | `watchdog_stop_count_max` | `watchdog_stop_count` | `actual <= value` |
    | `command_rejection_count_max` | `command_rejection_count` | `actual <= value` |
    | `collision_count_max` | `collision_count` | `actual <= value` |
    | `near_miss_count_max` | `near_miss_count` | `actual <= value` |
