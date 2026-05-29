@@ -15,6 +15,14 @@ practice independently.
   `obstacle_event_count`.
 
 ### Added
+- **`env.json` Nav2 version capture** — run metadata now records
+  `nav2_version`, resolved from the Nav2 `package.xml` `<version>` via the
+  `ament_index_python` index (`nav2_bringup` / `nav2_msgs` / `nav2_core`).
+  Best-effort and never raises: core CI / pure-sim runs (no ament index)
+  collect `""`. Together with the existing `ros_distro` this lets a replay of
+  a `nav2` run state which Nav2 it ran against.
+
+### Added
 - **Real-robot command-watchdog auto-poll** — the runtime now polls each
   adapter's `watchdog_expired` every tick (`_poll_safety_signals`). When a real
   robot's command pipeline stalls, the rising edge emits a `SAFETY_STOP`
