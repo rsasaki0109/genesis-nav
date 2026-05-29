@@ -303,6 +303,8 @@ def run_command(args: argparse.Namespace) -> int:
         reservation_granted_count=int(summary["reservation_granted_count"]),
         reservation_conflict_count=int(summary["reservation_conflict_count"]),
         reservation_released_count=int(summary["reservation_released_count"]),
+        replan_count=int(summary["replan_count"]),
+        obstacle_event_count=int(summary["obstacle_event_count"]),
     )
     write_json(run_dir / "metrics.json", metrics.to_dict())
     write_report(run_dir / "report.md", scenario, metrics)

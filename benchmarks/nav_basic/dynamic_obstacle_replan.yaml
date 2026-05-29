@@ -1,0 +1,52 @@
+scenario_id: bench_dynamic_obstacle_replan
+seed: 7
+world: examples/worlds/warehouse_small.py
+max_sim_seconds: 60
+# Regression guard for the v0.2 dynamic-obstacle replan path: an obstacle drops
+# onto the planned row-1 corridor mid-run; the agent must replan around it and
+# still reach the goal. See docs/decisions.md (2026-05-29 dynamic-obstacles ADR).
+occupancy_grid:
+  resolution: 1.0
+  origin: [0.0, 0.0]
+  cells:
+    - [0, 0, 0, 0, 0, 0]
+    - [0, 0, 0, 0, 0, 0]
+    - [0, 0, 0, 0, 0, 0]
+dynamic_obstacles:
+  events:
+    - at_sec: 0.1
+      block: [[3, 1]]
+agents:
+  - id: robot_001
+    type: diff_drive
+    namespace: /robot_001
+    spawn: [0.5, 1.5, 0.0]
+    frames:
+      map: map
+      odom: robot_001/odom
+      base: robot_001/base_link
+    capabilities:
+      - navigate_2d
+      - stop
+      - report_pose
+    authority:
+      mode: autonomous
+      command_ttl_ms: 200
+tasks:
+  - id: task_001
+    type: navigate_to_pose
+    agent: robot_001
+    goal: [5.5, 1.5, 0.0]
+metrics:
+  - success_rate
+  - time_to_goal
+record:
+  rosbag: false
+  events: true
+benchmark:
+  expected:
+    success_rate_min: 1.0
+    task_succeeded_count_min: 1
+    task_failed_count_max: 0
+    obstacle_event_count_min: 1
+    replan_count_min: 1

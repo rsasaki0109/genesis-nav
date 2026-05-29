@@ -6,6 +6,14 @@ project follows [Semantic Versioning](https://semver.org/) for the Python
 package; the ROS 2 packages under `ros2_ws/src/` follow ROS 2 release
 practice independently.
 
+## [Unreleased]
+
+### Added
+- **Dynamic-obstacle benchmark** — `benchmarks/nav_basic/dynamic_obstacle_replan.yaml`
+  guards the replan path via `gnav bench` (`obstacle_event_count_min`,
+  `replan_count_min` predicates). `metrics.json` now exposes `replan_count` and
+  `obstacle_event_count`.
+
 ## [0.2.0a0] — 2026-05-29
 
 v0.2 groundwork (alpha). The design ADRs dated 2026-05-29 in
@@ -111,5 +119,6 @@ adapters are deferred to v0.2 (see issue #10).
 - No Nav2 plugin bridge (intentional — see ADR in `docs/decisions.md`).
 - No real-robot adapters yet; the path is via the ROS 2 contract.
 
+[Unreleased]: https://github.com/rsasaki0109/genesis-nav/compare/v0.2.0a0...HEAD
 [0.2.0a0]: https://github.com/rsasaki0109/genesis-nav/releases/tag/v0.2.0a0
 [0.1.0]: https://github.com/rsasaki0109/genesis-nav/releases/tag/v0.1.0

@@ -29,6 +29,8 @@ _MIN_CHECKS: Mapping[str, str] = {
     "task_succeeded_count_min": "task_succeeded_count",
     "task_dispatched_count_min": "task_dispatched_count",
     "sim_steps_min": "sim_steps",
+    "replan_count_min": "replan_count",
+    "obstacle_event_count_min": "obstacle_event_count",
 }
 
 _MAX_CHECKS: Mapping[str, str] = {
