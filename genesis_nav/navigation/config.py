@@ -100,10 +100,18 @@ class CollisionConfig:
 
     collision_radius_m: float = 0.0
     near_miss_radius_m: float = 0.0
+    # Proximity *response*: while another agent with right-of-way is within this
+    # radius, the lower-priority agent yields (stops this tick). 0 disables, so
+    # detection (above) and response are independently switchable.
+    yield_radius_m: float = 0.0
 
     @property
     def enabled(self) -> bool:
         return self.collision_radius_m > 0.0 or self.near_miss_radius_m > 0.0
+
+    @property
+    def response_enabled(self) -> bool:
+        return self.yield_radius_m > 0.0
 
     @classmethod
     def from_scenario_raw(cls, raw: dict[str, Any] | None) -> "CollisionConfig":
@@ -118,11 +126,13 @@ class CollisionConfig:
         near_miss_radius_m = float(
             block.get("near_miss_radius_m", cls.near_miss_radius_m)
         )
-        if collision_radius_m < 0.0 or near_miss_radius_m < 0.0:
+        yield_radius_m = float(block.get("yield_radius_m", cls.yield_radius_m))
+        if min(collision_radius_m, near_miss_radius_m, yield_radius_m) < 0.0:
             raise ValueError("runtime.collision radii must be non-negative")
         return cls(
             collision_radius_m=collision_radius_m,
             near_miss_radius_m=near_miss_radius_m,
+            yield_radius_m=yield_radius_m,
         )
 
 

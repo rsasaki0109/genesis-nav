@@ -73,6 +73,7 @@ class RuntimeMetrics:
     watchdog_stop_count: int = 0
     collision_count: int = 0
     near_miss_count: int = 0
+    yield_count: int = 0
 
     def summary(self) -> dict[str, float | int]:
         total = len(self.tasks)
@@ -109,6 +110,7 @@ class RuntimeMetrics:
             "watchdog_stop_count": self.watchdog_stop_count,
             "collision_count": self.collision_count,
             "near_miss_count": self.near_miss_count,
+            "yield_count": self.yield_count,
         }
 
 
@@ -167,6 +169,9 @@ class Runtime:
         # approach is counted once on the rising edge (cleared on separation).
         self._collision_pairs: set[frozenset[str]] = set()
         self._near_miss_pairs: set[frozenset[str]] = set()
+        # Agents currently yielding right-of-way, so AGENT_YIELDED fires once per
+        # yield episode (on the rising edge).
+        self._yielding: set[str] = set()
 
     @classmethod
     def from_scenario(
@@ -595,6 +600,36 @@ class Runtime:
 
             if goal is None:
                 continue
+
+            # Proximity response: yield right-of-way to a higher-priority agent
+            # inside the yield radius. The yielding agent stops this tick; the
+            # autonomy loop resumes once the other clears. Observation-only
+            # detection (COLLISION/NEAR_MISS) still runs regardless.
+            if self._should_yield(state.agent_id, previous_pose):
+                if state.agent_id not in self._yielding:
+                    self._yielding.add(state.agent_id)
+                    self.metrics.yield_count += 1
+                    self.events.write(
+                        ts=sim_time,
+                        episode_id=episode_id,
+                        agent_id=state.agent_id,
+                        event="AGENT_YIELDED",
+                        task_id=task_id,
+                        data={
+                            "reason": "proximity_yield",
+                            "radius_m": self.collision_config.yield_radius_m,
+                        },
+                    )
+                adapter.stop("yield")
+                state.linear_velocity_x = 0.0
+                state.linear_velocity_y = 0.0
+                state.angular_velocity_z = 0.0
+                # Restart the stuck window after the wait so a brief yield is not
+                # mistaken for being stuck.
+                self._pose_history[state.agent_id] = deque()
+                continue
+            if state.agent_id in self._yielding:
+                self._yielding.discard(state.agent_id)
 
             if state.behavior_state is BehaviorState.ASSIGNED:
                 self._transition_behavior(
@@ -1114,6 +1149,36 @@ class Runtime:
                             )
                 else:
                     self._near_miss_pairs.discard(pair)
+
+    def _should_yield(self, agent_id: str, pose: tuple[float, float, float]) -> bool:
+        """True if a higher-priority agent is within the yield radius.
+
+        Right-of-way is the lexicographic agent-id order: the agent with the
+        smaller id has priority, so only the larger-id agent of a conflicting
+        pair yields. A total order means no two agents can each be waiting on the
+        other, so a pair never deadlocks (chains across 3+ agents resolve in
+        priority order too). A smarter priority (goal distance, reciprocal
+        velocity obstacles) is a documented follow-up.
+        """
+
+        radius = self.collision_config.yield_radius_m
+        if radius <= 0.0:
+            return False
+        for state in self.registry.list_states():
+            other_id = state.agent_id
+            if other_id >= agent_id:
+                continue  # only yield to strictly higher-priority agents
+            # Only yield to an agent that is itself navigating a task; an idle
+            # agent parked at its goal must not hold others up forever.
+            if not state.current_task_id:
+                continue
+            other = self.adapters.get(other_id)
+            if other is None:
+                continue
+            other_pose = other.read_pose()
+            if math.hypot(pose[0] - other_pose[0], pose[1] - other_pose[1]) <= radius:
+                return True
+        return False
 
     def _poll_command_watchdog(
         self, adapter: EmbodimentAdapter, state, sim_time: float, episode_id: str

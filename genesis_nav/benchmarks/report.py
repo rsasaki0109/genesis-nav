@@ -34,6 +34,7 @@ _MIN_CHECKS: Mapping[str, str] = {
     "watchdog_stop_count_min": "watchdog_stop_count",
     "collision_count_min": "collision_count",
     "near_miss_count_min": "near_miss_count",
+    "yield_count_min": "yield_count",
 }
 
 _MAX_CHECKS: Mapping[str, str] = {
@@ -42,6 +43,7 @@ _MAX_CHECKS: Mapping[str, str] = {
     "command_rejection_count_max": "command_rejection_count",
     "collision_count_max": "collision_count",
     "near_miss_count_max": "near_miss_count",
+    "yield_count_max": "yield_count",
     "emergency_stop_count_max": "emergency_stop_count",
     "watchdog_stop_count_max": "watchdog_stop_count",
     "reservation_conflict_count_max": "reservation_conflict_count",

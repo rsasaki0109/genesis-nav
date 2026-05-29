@@ -349,6 +349,7 @@ Known event names:
 - `FALL_DETECTED`
 - `COLLISION`
 - `NEAR_MISS`
+- `AGENT_YIELDED`
 - `AGENT_STUCK`
 - `STUCK_RECOVERED`
 - `OBSTACLE_CHANGED`
@@ -552,6 +553,7 @@ runtime:
   collision:
     collision_radius_m: 0.3   # 0 disables (default)
     near_miss_radius_m: 1.0   # 0 disables (default)
+    yield_radius_m: 1.2       # 0 disables response (default)
 ```
 
 Each tick the runtime measures the planar distance between every agent pair. On
@@ -564,11 +566,26 @@ entering straight into a collision does not also fire a near-miss on the way
 out. Both radii default to 0, so detection is off (and zero-overhead) unless
 configured — existing scenarios keep `collision_count = near_miss_count = 0`.
 
-Detection is **observation only**: it does not stop or reroute agents. Proximity
-*response* (yield / replan / costmap-aware reservation) is a documented
-follow-up (see the 2026-05-29 proximity-detection ADR). `benchmarks/multi_agent/
-near_miss_detection.yaml` guards the detector via `near_miss_count_min` /
-`collision_count_max` predicates.
+Detection (`collision_radius_m` / `near_miss_radius_m`) is **observation only**.
+`benchmarks/multi_agent/near_miss_detection.yaml` guards it via
+`near_miss_count_min` / `collision_count_max` predicates.
+
+**Proximity response (yield).** When `yield_radius_m > 0`, an executing agent
+yields right-of-way — stops for that tick — while a *higher-priority* agent with
+an active task is within the yield radius. Right-of-way is the lexicographic
+agent-id order (smaller id wins), a total order, so a pair never deadlocks and
+3+ agent chains resolve in priority order. The yielding agent stops cleanly
+(`adapter.stop`, zero velocity), its stuck window is reset so a brief wait is
+not mistaken for being stuck, and it emits `AGENT_YIELDED`
+(`data.reason="proximity_yield"`) on the rising edge of each yield episode,
+bumping `yield_count`. An idle agent parked at its goal is never yielded to.
+This is a reactive stop-and-wait scheme: it resolves crossing conflicts (one
+agent waits, the other passes, then it proceeds) but not head-on conflicts on a
+shared line, which need a lateral reroute — a documented follow-up alongside
+smarter priority (goal distance, reciprocal velocity obstacles) and costmap-aware
+reservation. `benchmarks/multi_agent/yield_avoidance.yaml` guards it: the same
+crossing that collides under detection-only reaches `collision = near_miss = 0`
+with response on, both agents still succeeding.
 
 ## Run Directory Layout
 
