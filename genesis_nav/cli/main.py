@@ -234,6 +234,7 @@ def run_command(args: argparse.Namespace) -> int:
             )
             event_sink = FanoutEventSink([jsonl_sink, event_buffer, bridge])
             runtime.events = event_sink
+            bridge.set_diagnostics_provider(runtime.diagnostics)
 
         try:
             event_sink.write(
@@ -256,6 +257,7 @@ def run_command(args: argparse.Namespace) -> int:
             if bridge is not None:
                 bridge.publish_clock(0.0)
                 bridge.publish_states(0.0)
+                bridge.publish_diagnostics(0.0)
                 bridge.publish_scenario_state(
                     0.0,
                     scenario_id=scenario.scenario_id,
@@ -273,6 +275,7 @@ def run_command(args: argparse.Namespace) -> int:
                 if bridge is not None:
                     bridge.publish_clock(sim_time)
                     bridge.publish_states(sim_time)
+                    bridge.publish_diagnostics(sim_time)
                     snapshot = runtime.metrics.summary()
                     bridge.publish_fleet_state(
                         sim_time,

@@ -8,6 +8,16 @@ practice independently.
 
 ## [Unreleased]
 
+### Added
+- **Diagnostics over the ROS bridge** — `gnav run --ros` now publishes the
+  per-agent health report each tick on `/genesis_nav/diagnostics` as a standard
+  `diagnostic_msgs/DiagnosticArray` (one `DiagnosticStatus` per agent; level
+  `OK`/`WARN`/`ERROR` maps 1:1; `values` carry `behavior_state` and
+  `command_age_sec`), so RViz and the ROS diagnostic aggregator see the same
+  health the runtime computes — including the inter-agent proximity axes. The
+  bridge stays decoupled via `RosBridge.set_diagnostics_provider(...)`. No
+  `genesis_nav_msgs` change (standard `diagnostic_msgs`).
+
 ### Changed
 - **Diagnostics fold inter-agent proximity** — `Runtime.diagnostics()` /
   `AgentToolApi.get_diagnostics()` now report `in_collision` (→ ERROR) and
