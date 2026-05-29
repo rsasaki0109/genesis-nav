@@ -9,6 +9,19 @@ practice independently.
 ## [Unreleased]
 
 ### Added
+- **Proximity response (yield right-of-way)** — `runtime.collision.yield_radius_m`
+  (0 = disabled). An executing agent yields (stops for that tick) while a
+  higher-priority agent — lexicographic agent-id order, a deadlock-free total
+  order — with an active task is within the yield radius. Emits `AGENT_YIELDED`
+  and bumps `yield_count`; resets the stuck window so a brief wait is not
+  mistaken for being stuck; never yields to an idle agent parked at its goal.
+  Resolves crossing conflicts (stop-and-wait); head-on reroute, smarter
+  priority, and costmap-aware reservation remain follow-ups. New bench
+  predicates `yield_count_min` / `yield_count_max`; new guard scenario
+  `benchmarks/multi_agent/yield_avoidance.yaml` (the crossing that collides
+  under detection-only reaches collision = near_miss = 0 with response on).
+
+### Added
 - **Inter-agent proximity detection** — optional `runtime.collision` block
   (`collision_radius_m` / `near_miss_radius_m`, both default 0 = disabled). Each
   tick the runtime measures the planar distance between every agent pair and, on

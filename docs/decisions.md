@@ -649,3 +649,22 @@ detector is O(n²) in agents per tick; fine for the current fleet sizes, and a
 spatial hash is a transparent optimization later if needed. Detection runs in
 sim time on the same poses the controller sees (one-tick lag), so it stays
 deterministic and replayable.
+
+Update (2026-05-29, same day): proximity *response* now builds on the detector.
+`runtime.collision.yield_radius_m` (0 = off) makes an executing agent yield —
+stop for that tick — while a higher-priority agent with an active task is inside
+the radius. Right-of-way is the lexicographic agent-id order: a *total* order,
+chosen precisely because it is deadlock-free — no two agents can each be waiting
+on the other, and 3+ agent chains drain in priority order. The yielding agent
+emits `AGENT_YIELDED` (rising edge) and bumps `yield_count`; its stuck window is
+reset so a brief wait is not mistaken for being stuck; and an idle agent parked
+at its goal is never yielded to (else it would block others forever — a bug the
+first cut had). This is deliberately the simplest scheme that does real work:
+stop-and-wait resolves *crossing* conflicts (verified — the same geometry that
+collides under detection-only reaches `collision = near_miss = 0` with response
+on, both agents still succeeding) but not *head-on* conflicts on a shared line,
+which need a lateral reroute. That reroute, a smarter priority (goal distance,
+reciprocal velocity obstacles), and costmap-aware reservation are the follow-ups
+— each now layerable on a tested detect→respond loop rather than invented all at
+once. Response is decoupled from detection (separate radius), so a scenario can
+observe without acting or act without flagging.

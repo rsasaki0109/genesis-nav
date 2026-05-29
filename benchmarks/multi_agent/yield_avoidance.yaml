@@ -1,0 +1,41 @@
+scenario_id: bench_multi_agent_yield
+seed: 7
+world: examples/worlds/warehouse_small.py
+max_sim_seconds: 30
+# Two agents would reach the shared crossing point (1, 0) on the same tick: with
+# detection only they collide (see benchmarks/multi_agent/near_miss_detection.yaml
+# for the detection-only side). With proximity response enabled, the
+# lower-priority agent (b, by agent-id order) yields right-of-way, a passes
+# first, then b proceeds — the conflict is fully avoided (collision=near_miss=0)
+# and both still reach their goals. Guards the yield response.
+runtime:
+  collision:
+    collision_radius_m: 0.3
+    near_miss_radius_m: 0.8
+    yield_radius_m: 1.2
+agents:
+  - id: a
+    type: diff_drive
+    namespace: /a
+    spawn: [0.0, 0.0, 0.0]
+    capabilities: [navigate_2d, stop, report_pose]
+    authority: {mode: autonomous, command_ttl_ms: 200}
+  - id: b
+    type: diff_drive
+    namespace: /b
+    spawn: [1.0, -1.0, 1.5708]
+    capabilities: [navigate_2d, stop, report_pose]
+    authority: {mode: autonomous, command_ttl_ms: 200}
+tasks:
+  - {id: ta, type: navigate_to_pose, agent: a, goal: [2.0, 0.0, 0.0]}
+  - {id: tb, type: navigate_to_pose, agent: b, goal: [1.0, 1.0, 1.5708]}
+metrics: [success_rate]
+record: {rosbag: false, events: true}
+benchmark:
+  expected:
+    success_rate_min: 1.0
+    task_succeeded_count_min: 2
+    task_failed_count_max: 0
+    yield_count_min: 1
+    collision_count_max: 0
+    near_miss_count_max: 0

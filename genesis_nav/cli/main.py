@@ -333,6 +333,7 @@ def run_command(args: argparse.Namespace) -> int:
         watchdog_stop_count=int(summary["watchdog_stop_count"]),
         collision_count=int(summary["collision_count"]),
         near_miss_count=int(summary["near_miss_count"]),
+        yield_count=int(summary["yield_count"]),
     )
     write_json(run_dir / "metrics.json", metrics.to_dict())
     write_report(run_dir / "report.md", scenario, metrics)
@@ -369,6 +370,7 @@ REPLAY_PLAYBACK_EVENTS = frozenset(
         "FALL_DETECTED",
         "COLLISION",
         "NEAR_MISS",
+        "AGENT_YIELDED",
         "AGENT_STUCK",
     }
 )
