@@ -32,6 +32,8 @@ _MIN_CHECKS: Mapping[str, str] = {
     "replan_count_min": "replan_count",
     "obstacle_event_count_min": "obstacle_event_count",
     "watchdog_stop_count_min": "watchdog_stop_count",
+    "collision_count_min": "collision_count",
+    "near_miss_count_min": "near_miss_count",
 }
 
 _MAX_CHECKS: Mapping[str, str] = {

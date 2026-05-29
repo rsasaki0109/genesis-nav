@@ -22,7 +22,7 @@ from genesis_nav.fleet.reservation import ReservationManager
 from genesis_nav.fleet.resources import ResourceCatalog
 from genesis_nav.humanoid.adapter import HumanoidIntentAdapter
 from genesis_nav.navigation.behavior import BehaviorState, can_transition
-from genesis_nav.navigation.config import NavigationConfig
+from genesis_nav.navigation.config import CollisionConfig, NavigationConfig
 from genesis_nav.navigation.global_planner import StraightLinePlanner
 from genesis_nav.navigation.grid_planner import (
     GridAStarPlanner,
@@ -71,6 +71,8 @@ class RuntimeMetrics:
     replan_count: int = 0
     obstacle_event_count: int = 0
     watchdog_stop_count: int = 0
+    collision_count: int = 0
+    near_miss_count: int = 0
 
     def summary(self) -> dict[str, float | int]:
         total = len(self.tasks)
@@ -105,6 +107,8 @@ class RuntimeMetrics:
             "replan_count": self.replan_count,
             "obstacle_event_count": self.obstacle_event_count,
             "watchdog_stop_count": self.watchdog_stop_count,
+            "collision_count": self.collision_count,
+            "near_miss_count": self.near_miss_count,
         }
 
 
@@ -126,6 +130,7 @@ class Runtime:
         resources: ResourceCatalog | None = None,
         planner: object | None = None,
         navigation_config: NavigationConfig | None = None,
+        collision_config: CollisionConfig | None = None,
         obstacle_source: ObstacleSource | None = None,
     ) -> None:
         self.registry = registry
@@ -145,6 +150,7 @@ class Runtime:
         self._current_episode_id: str = ""
         self.planner = planner or StraightLinePlanner()
         self.navigation_config = navigation_config or NavigationConfig()
+        self.collision_config = collision_config or CollisionConfig()
         self._obstacle_source = obstacle_source
         self._waypoints: dict[str, list[tuple[float, float, float]]] = {}
         self._pose_history: dict[
@@ -157,6 +163,10 @@ class Runtime:
         # Agents whose real-robot command-staleness watchdog has already tripped,
         # so the rising edge fires the safety stop exactly once.
         self._watchdog_tripped: set[str] = set()
+        # Agent pairs currently inside the collision / near-miss radius, so each
+        # approach is counted once on the rising edge (cleared on separation).
+        self._collision_pairs: set[frozenset[str]] = set()
+        self._near_miss_pairs: set[frozenset[str]] = set()
 
     @classmethod
     def from_scenario(
@@ -185,6 +195,7 @@ class Runtime:
                     )
         resources = ResourceCatalog.from_scenario(scenario.raw)
         navigation_config = NavigationConfig.from_scenario_raw(scenario.raw)
+        collision_config = CollisionConfig.from_scenario_raw(scenario.raw)
         planner = cls._select_planner(scenario, navigation_config)
         controller = cls._select_controller(scenario, navigation_config)
         obstacle_source = build_obstacle_source(scenario.raw)
@@ -198,6 +209,7 @@ class Runtime:
             planner=planner,
             controller=controller,
             navigation_config=navigation_config,
+            collision_config=collision_config,
             obstacle_source=obstacle_source,
         )
 
@@ -1021,6 +1033,87 @@ class Runtime:
                 self.registry.emergency_stop(state.agent_id, True)
             elif not fallen and state.fall_detected:
                 state.fall_detected = False
+
+        self._poll_collisions(sim_time=sim_time, episode_id=episode_id)
+
+    def _poll_collisions(self, *, sim_time: float, episode_id: str) -> None:
+        """Detect inter-agent proximity (collision / near-miss), rising edge.
+
+        Observation only: emits `COLLISION` / `NEAR_MISS` and bumps the matching
+        counter the first tick a pair enters each radius, clearing the pair on
+        separation so a later re-approach is counted again. It does not stop or
+        reroute agents — proximity *response* (yield / replan) is a documented
+        follow-up. Disabled (zero overhead) unless a radius is configured, so
+        existing scenarios are unaffected.
+        """
+
+        cfg = self.collision_config
+        if not cfg.enabled:
+            return
+        poses: list[tuple[str, tuple[float, float, float]]] = []
+        for state in self.registry.list_states():
+            adapter = self.adapters.get(state.agent_id)
+            if adapter is None:
+                continue
+            poses.append((state.agent_id, adapter.read_pose()))
+
+        for i in range(len(poses)):
+            id_a, pose_a = poses[i]
+            for j in range(i + 1, len(poses)):
+                id_b, pose_b = poses[j]
+                pair = frozenset((id_a, id_b))
+                distance = math.hypot(pose_a[0] - pose_b[0], pose_a[1] - pose_b[1])
+
+                colliding = (
+                    cfg.collision_radius_m > 0.0
+                    and distance <= cfg.collision_radius_m
+                )
+                near = (
+                    cfg.near_miss_radius_m > 0.0
+                    and distance <= cfg.near_miss_radius_m
+                )
+
+                if colliding:
+                    if pair not in self._collision_pairs:
+                        self._collision_pairs.add(pair)
+                        self.metrics.collision_count += 1
+                        self.events.write(
+                            ts=sim_time,
+                            episode_id=episode_id,
+                            agent_id=id_a,
+                            event="COLLISION",
+                            data={
+                                "agents": sorted((id_a, id_b)),
+                                "distance_m": distance,
+                                "radius_m": cfg.collision_radius_m,
+                                "scope": "pair",
+                            },
+                        )
+                else:
+                    self._collision_pairs.discard(pair)
+
+                # Mark the pair on first entry into the near zone (even if it
+                # entered straight into collision), so receding from a collision
+                # back through the near zone is not counted as a fresh near-miss.
+                if near:
+                    if pair not in self._near_miss_pairs:
+                        self._near_miss_pairs.add(pair)
+                        if not colliding:
+                            self.metrics.near_miss_count += 1
+                            self.events.write(
+                                ts=sim_time,
+                                episode_id=episode_id,
+                                agent_id=id_a,
+                                event="NEAR_MISS",
+                                data={
+                                    "agents": sorted((id_a, id_b)),
+                                    "distance_m": distance,
+                                    "radius_m": cfg.near_miss_radius_m,
+                                    "scope": "pair",
+                                },
+                            )
+                else:
+                    self._near_miss_pairs.discard(pair)
 
     def _poll_command_watchdog(
         self, adapter: EmbodimentAdapter, state, sim_time: float, episode_id: str

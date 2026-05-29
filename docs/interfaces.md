@@ -542,6 +542,34 @@ existing emergency-stop branch handles `adapter.stop` and
 `COMMAND_REJECTED`. See [`humanoid.md`](humanoid.md) for the full contract
 and the non-goals.
 
+## Inter-Agent Proximity Detection
+
+Optional planar collision / near-miss detection between agents, configured by a
+top-level `runtime.collision` block:
+
+```yaml
+runtime:
+  collision:
+    collision_radius_m: 0.3   # 0 disables (default)
+    near_miss_radius_m: 1.0   # 0 disables (default)
+```
+
+Each tick the runtime measures the planar distance between every agent pair. On
+the rising edge of a pair entering a radius it emits a `COLLISION` (≤
+`collision_radius_m`) or `NEAR_MISS` (≤ `near_miss_radius_m`, outside the
+collision radius) event — `data` carries the sorted `agents`, `distance_m`, and
+`radius_m` — and bumps `collision_count` / `near_miss_count`. A pair is counted
+once per approach and re-armed only after it separates beyond the radius;
+entering straight into a collision does not also fire a near-miss on the way
+out. Both radii default to 0, so detection is off (and zero-overhead) unless
+configured — existing scenarios keep `collision_count = near_miss_count = 0`.
+
+Detection is **observation only**: it does not stop or reroute agents. Proximity
+*response* (yield / replan / costmap-aware reservation) is a documented
+follow-up (see the 2026-05-29 proximity-detection ADR). `benchmarks/multi_agent/
+near_miss_detection.yaml` guards the detector via `near_miss_count_min` /
+`collision_count_max` predicates.
+
 ## Run Directory Layout
 
 Every `gnav run` writes a self-contained directory under `--output-dir`

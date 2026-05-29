@@ -87,4 +87,43 @@ class NavigationConfig:
         )
 
 
-__all__ = ["NavigationConfig"]
+@dataclass(frozen=True)
+class CollisionConfig:
+    """Inter-agent proximity detection thresholds (planar, metres).
+
+    Both radii default to 0.0, which disables detection — existing scenarios
+    keep ``collision_count``/``near_miss_count`` at 0 and pay no overhead.
+    Detection is observation only: it emits `COLLISION` / `NEAR_MISS` events and
+    counts them; it does not (yet) stop or reroute agents. Read from a top-level
+    ``runtime.collision`` mapping.
+    """
+
+    collision_radius_m: float = 0.0
+    near_miss_radius_m: float = 0.0
+
+    @property
+    def enabled(self) -> bool:
+        return self.collision_radius_m > 0.0 or self.near_miss_radius_m > 0.0
+
+    @classmethod
+    def from_scenario_raw(cls, raw: dict[str, Any] | None) -> "CollisionConfig":
+        if not raw:
+            return cls()
+        block = (raw.get("runtime") or {}).get("collision") or {}
+        if not isinstance(block, dict):
+            raise ValueError("runtime.collision must be a mapping")
+        collision_radius_m = float(
+            block.get("collision_radius_m", cls.collision_radius_m)
+        )
+        near_miss_radius_m = float(
+            block.get("near_miss_radius_m", cls.near_miss_radius_m)
+        )
+        if collision_radius_m < 0.0 or near_miss_radius_m < 0.0:
+            raise ValueError("runtime.collision radii must be non-negative")
+        return cls(
+            collision_radius_m=collision_radius_m,
+            near_miss_radius_m=near_miss_radius_m,
+        )
+
+
+__all__ = ["CollisionConfig", "NavigationConfig"]
