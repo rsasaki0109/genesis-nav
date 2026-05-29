@@ -204,8 +204,9 @@ runtime:
 
 `Runtime.submit_teleop_command(agent_id, *, requester_id, linear_x=0.0,
 linear_y=0.0, angular_z=0.0, source="teleop", ttl_ms=None, hold_sec=None)` is
-the transport-agnostic operator entry point (the in-process equivalent of the
-ROS bridge `/cmd_vel` path). It stamps a `TELEOP` command with the operator's
+the single operator entry point: both the in-process API and the ROS bridge
+`/cmd_vel` path flow through it (the bridge calls it with
+`requester_id="ros_cmd_vel"`). It stamps a `TELEOP` command with the operator's
 `requester_id` and current sim time, runs it through `CommandGate`, emits
 `COMMAND_ACCEPTED` / `COMMAND_REJECTED`, and on accept applies it and holds off
 the autonomy loop for `hold_sec` (default `runtime.navigation.teleop_hold_sec`,
@@ -261,10 +262,18 @@ Loaded by `genesis_nav.genesis.load_world_entry`. The reference world is
   `/genesis_nav/fleet_state` and per-agent `<ns>/state` and `<ns>/odom`
 - broadcasts `<map>` → `<ns>/odom` on `/tf_static` and `<ns>/odom` →
   `<ns>/base_link` on `/tf`
-- subscribes to `<ns>/cmd_vel`, builds a `RuntimeCommand(authority=TELEOP)`,
-  evaluates it through `CommandGate`, then either applies the accepted command
-  to the embodiment adapter or emits `COMMAND_REJECTED`. AI-authority
-  velocities are still rejected by the gate.
+- subscribes to `<ns>/cmd_vel` and forwards each Twist to
+  `Runtime.submit_teleop_command(..., requester_id="ros_cmd_vel")` via the
+  injected `teleop_command_handler`. The bridge is **pure transport**: gating,
+  `COMMAND_ACCEPTED` / `COMMAND_REJECTED` events, the actuator apply, and the
+  autonomy hold all live in the runtime. AI-authority velocities are still
+  rejected by the gate, and an external `/cmd_vel` now yields autonomy for
+  `teleop_hold_sec` exactly like the in-process teleop API.
+
+`RosBridge(registry, runtime_clock, events, *, config=None,
+teleop_command_handler=None, episode_id="")` no longer takes a `CommandGate`
+(the gate lives in the runtime). `teleop_command_handler` has signature
+`(agent_id, linear_x, linear_y, angular_z) -> CommandDecision`.
 
 ## Runtime Events
 

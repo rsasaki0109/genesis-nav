@@ -16,7 +16,7 @@ __all__ = [
 
 
 def __getattr__(name: str):  # type: ignore[no-untyped-def]
-    if name in {"BridgeConfig", "RosBridge", "ExternalCommandHandler"}:
+    if name in {"BridgeConfig", "RosBridge", "TeleopCommandHandler"}:
         from genesis_nav.ros import bridge
 
         return getattr(bridge, name)
