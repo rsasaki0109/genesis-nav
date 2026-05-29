@@ -6,12 +6,15 @@ project follows [Semantic Versioning](https://semver.org/) for the Python
 package; the ROS 2 packages under `ros2_ws/src/` follow ROS 2 release
 practice independently.
 
-## [Unreleased]
+## [0.2.0a0] — 2026-05-29
 
-v0.2 groundwork. The three design ADRs dated 2026-05-29 in
+v0.2 groundwork (alpha). The design ADRs dated 2026-05-29 in
 `docs/decisions.md` are now backed by tested, sim-first slices. Each keeps
 all `rclpy` use behind a boundary so the core stays unit-testable without
-ROS 2, and every actuator-bound command still passes `CommandGate`.
+ROS 2, and every actuator-bound command still passes `CommandGate`. Tagged
+as an alpha pre-release because several paths are intentionally partial — the
+real-robot loop, Nav2 controller delegation, and watchdog auto-poll are
+documented follow-ups, not yet closed.
 
 ### Added
 
@@ -108,5 +111,5 @@ adapters are deferred to v0.2 (see issue #10).
 - No Nav2 plugin bridge (intentional — see ADR in `docs/decisions.md`).
 - No real-robot adapters yet; the path is via the ROS 2 contract.
 
-[Unreleased]: https://github.com/rsasaki0109/genesis-nav/compare/v0.1.0...HEAD
+[0.2.0a0]: https://github.com/rsasaki0109/genesis-nav/releases/tag/v0.2.0a0
 [0.1.0]: https://github.com/rsasaki0109/genesis-nav/releases/tag/v0.1.0
