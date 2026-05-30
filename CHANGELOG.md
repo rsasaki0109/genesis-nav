@@ -8,6 +8,16 @@ practice independently.
 
 ## [Unreleased]
 
+## [0.2.0a1] — 2026-05-31
+
+Second v0.2 alpha. Builds on `0.2.0a0` with the real-robot loop closed in
+process, full Nav2 delegation (planner + controller, both through
+`CommandGate`), Nav2 reproducibility capture, a multi-agent spatial-safety
+loop (detect → near-miss → yield → diagnostics), and that health surfaced over
+the ROS bridge. Every slice keeps `rclpy` behind a boundary so the core stays
+unit-testable without ROS 2, and every actuator-bound command still passes
+`CommandGate`.
+
 ### Added
 - **Diagnostics over the ROS bridge** — `gnav run --ros` now publishes the
   per-agent health report each tick on `/genesis_nav/diagnostics` as a standard
@@ -224,6 +234,7 @@ adapters are deferred to v0.2 (see issue #10).
 - No Nav2 plugin bridge (intentional — see ADR in `docs/decisions.md`).
 - No real-robot adapters yet; the path is via the ROS 2 contract.
 
-[Unreleased]: https://github.com/rsasaki0109/genesis-nav/compare/v0.2.0a0...HEAD
+[Unreleased]: https://github.com/rsasaki0109/genesis-nav/compare/v0.2.0a1...HEAD
+[0.2.0a1]: https://github.com/rsasaki0109/genesis-nav/compare/v0.2.0a0...v0.2.0a1
 [0.2.0a0]: https://github.com/rsasaki0109/genesis-nav/releases/tag/v0.2.0a0
 [0.1.0]: https://github.com/rsasaki0109/genesis-nav/releases/tag/v0.1.0
