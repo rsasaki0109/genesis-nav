@@ -13,3 +13,6 @@ benchmarks/_runs/
 dist/
 *.db3
 *.mcap
+
+# Heavy/regenerable demo video (GIF is the tracked artifact)
+docs/media/*.mp4
