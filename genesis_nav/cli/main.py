@@ -202,6 +202,12 @@ def run_command(args: argparse.Namespace) -> int:
                 file=sys.stderr,
             )
             return 4
+
+        # Genesis needs scene.build() after every agent has been spawned (which
+        # happens during from_scenario) and before the first physics step.
+        if genesis_backend is not None:
+            genesis_backend.finalize()
+
         tool_api = runtime.tool_api(
             scenario_id=scenario.scenario_id, event_buffer=event_buffer
         )
