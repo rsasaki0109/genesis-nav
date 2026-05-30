@@ -2,8 +2,9 @@
 
 Responsibilities:
 - publish `/clock` driven by the runtime simulation clock
-- publish `/genesis_nav/events`, `/genesis_nav/scenario_state`, and
-  `/genesis_nav/fleet_state`
+- publish `/genesis_nav/events`, `/genesis_nav/scenario_state`,
+  `/genesis_nav/fleet_state`, and `/genesis_nav/diagnostics`
+  (`diagnostic_msgs/DiagnosticArray`, one status per agent)
 - publish per-agent `<ns>/state` and `<ns>/odom`
 - broadcast tf (`<ns>/odom` -> `<ns>/base_link`) and tf_static (`map` ->
   `<ns>/odom`)
@@ -72,6 +73,11 @@ class RosBridge:
         from rosgraph_msgs.msg import Clock
         from geometry_msgs.msg import TransformStamped, Twist
         from nav_msgs.msg import Odometry
+        from diagnostic_msgs.msg import (
+            DiagnosticArray,
+            DiagnosticStatus,
+            KeyValue,
+        )
 
         from genesis_nav_msgs.msg import (
             AgentState as AgentStateMsg,
@@ -96,6 +102,12 @@ class RosBridge:
         self._FleetStateMsg = FleetStateMsg
         self._RuntimeEventMsg = RuntimeEventMsg
         self._ScenarioStateMsg = ScenarioStateMsg
+        self._DiagnosticArray = DiagnosticArray
+        self._DiagnosticStatus = DiagnosticStatus
+        self._KeyValue = KeyValue
+        # Optional callable returning a DiagnosticsReport (wired to
+        # Runtime.diagnostics); None until set_diagnostics_provider is called.
+        self._diagnostics_provider: Callable[[], Any] | None = None
 
         if not rclpy.ok():
             rclpy.init()
@@ -144,6 +156,11 @@ class RosBridge:
             FleetStateMsg,
             "/genesis_nav/fleet_state",
             qos_profile_for("/genesis_nav/fleet_state", self._profiles),
+        )
+        self._diagnostics_pub = self.node.create_publisher(
+            DiagnosticArray,
+            "/genesis_nav/diagnostics",
+            qos_profile_for("/genesis_nav/diagnostics", self._profiles),
         )
 
         self._register_agents()
@@ -252,6 +269,52 @@ class RosBridge:
         msg.completed_task_count = int(completed)
         msg.state_json = json.dumps(extra or {}, sort_keys=True)
         self._fleet_pub.publish(msg)
+
+    # ----------------------------------------------------------- diagnostics
+
+    def set_diagnostics_provider(self, provider: Callable[[], Any]) -> None:
+        """Register a zero-arg callable returning a `DiagnosticsReport`.
+
+        Wired to `Runtime.diagnostics` by `gnav run --ros`. The bridge maps the
+        report onto a standard `diagnostic_msgs/DiagnosticArray` so RViz and the
+        ROS diagnostic aggregator can consume the per-agent health (including the
+        inter-agent proximity axes) the runtime already computes.
+        """
+
+        self._diagnostics_provider = provider
+
+    def publish_diagnostics(self, sim_time_sec: float) -> None:
+        """Publish a `DiagnosticArray` (one `DiagnosticStatus` per agent).
+
+        No-op until a provider is set. Levels map 1:1 onto `diagnostic_msgs`
+        (`OK=0 < WARN=1 < ERROR=2`), matching the runtime's `DiagnosticLevel`.
+        """
+
+        if self._diagnostics_provider is None:
+            return
+        report = self._diagnostics_provider()
+        level_map = {
+            0: self._DiagnosticStatus.OK,
+            1: self._DiagnosticStatus.WARN,
+            2: self._DiagnosticStatus.ERROR,
+        }
+        msg = self._DiagnosticArray()
+        msg.header.stamp = self._stamp(sim_time_sec)
+        msg.header.frame_id = self.config.map_frame
+        for agent in report.agents:
+            status = self._DiagnosticStatus()
+            status.level = level_map.get(int(agent.level), self._DiagnosticStatus.OK)
+            status.name = f"genesis_nav/{agent.agent_id}"
+            status.hardware_id = agent.agent_id
+            status.message = "; ".join(agent.messages) if agent.messages else "ok"
+            status.values = [
+                self._KeyValue(key="behavior_state", value=str(agent.behavior_state)),
+                self._KeyValue(
+                    key="command_age_sec", value=str(agent.command_age_sec)
+                ),
+            ]
+            msg.status.append(status)
+        self._diagnostics_pub.publish(msg)
 
     # ------------------------------------------------------------- EventSink
 

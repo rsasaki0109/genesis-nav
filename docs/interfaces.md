@@ -288,6 +288,14 @@ agents. When `runtime.navigation.diagnostics_interval_sec > 0`, a periodic
 `DIAGNOSTICS` event carrying `report.to_dict()` is emitted so replays
 reconstruct the health timeline (default 0 = disabled).
 
+Under `gnav run --ros` the bridge also publishes the report each tick on
+`/genesis_nav/diagnostics` as a `diagnostic_msgs/DiagnosticArray` (one
+`DiagnosticStatus` per agent; level `OK`/`WARN`/`ERROR` maps 1:1, `message`
+joins the agent's messages, `values` carries `behavior_state` and
+`command_age_sec`) — so RViz and the ROS diagnostic aggregator see the same
+health, including the inter-agent proximity axes. The bridge stays decoupled:
+the CLI wires `RosBridge.set_diagnostics_provider(runtime.diagnostics)`.
+
 ```yaml
 runtime:
   navigation:
