@@ -613,6 +613,19 @@ to avoid bloating event logs; turning it on is a per-scenario knob. The level
 mapping is intentionally coarse (three levels, watchdog = WARN); a richer
 taxonomy (e.g. ROS `STALE`) can be layered later without breaking the contract.
 
+Update (2026-05-29, same day): the diagnostics collector now also folds the
+inter-agent proximity layer — `state.in_collision` → ERROR, `state.yielding` →
+WARN — so spatial-safety has an operator/AI-facing consumer the same way the
+watchdog does. The flags are maintained by the runtime each tick (`in_collision`
+recomputed from the current poses in `_poll_collisions`; `yielding` set on the
+yield branch) and read by the *pure* collector via `getattr` defaults, so no new
+collector parameter and no change for scenarios with detection off. This is the
+deliberate consolidation step: rather than push head-on lateral reroute (a
+larger local-planner effort, kept as a follow-up), the three avoidance slices
+(detect → near-miss → yield) are surfaced through the existing health read-model
+and periodic `DIAGNOSTICS` event, so a replay reconstructs the spatial-safety
+timeline and `AgentToolApi.get_diagnostics()` exposes it read-only to AI agents.
+
 ## 2026-05-29: Inter-agent proximity detection is observation before control
 
 Status: Implemented (v0.2). First step against the v0.1 known limitation "no

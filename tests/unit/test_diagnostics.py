@@ -62,6 +62,25 @@ def test_failed_behavior_is_error() -> None:
     assert "task_failed" in report.agents[0].messages
 
 
+def test_in_collision_is_error() -> None:
+    report = collect_diagnostics([_state("a", in_collision=True)], {})
+    assert report.agents[0].level is DiagnosticLevel.ERROR
+    assert "in_collision" in report.agents[0].messages
+
+
+def test_yielding_is_warn() -> None:
+    report = collect_diagnostics([_state("a", yielding=True)], {})
+    assert report.agents[0].level is DiagnosticLevel.WARN
+    assert "yielding" in report.agents[0].messages
+
+
+def test_collision_outranks_yield_on_same_agent() -> None:
+    report = collect_diagnostics(
+        [_state("a", yielding=True, in_collision=True)], {}
+    )
+    assert report.agents[0].level is DiagnosticLevel.ERROR
+
+
 def test_overall_level_is_worst_agent() -> None:
     report = collect_diagnostics(
         [_state("ok"), _state("bad", emergency_stopped=True)], {}

@@ -87,6 +87,11 @@ class AgentState:
     battery: float = 1.0
     emergency_stopped: bool = False
     fall_detected: bool = False
+    # Spatial-safety flags maintained by the runtime each tick: yielding
+    # right-of-way to a higher-priority agent, and currently inside another
+    # agent's collision radius. Folded into the diagnostics health read-model.
+    yielding: bool = False
+    in_collision: bool = False
     capabilities: tuple[str, ...] = ()
     behavior_state: BehaviorState = BehaviorState.IDLE
 

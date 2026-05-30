@@ -280,8 +280,9 @@ runtime:
 `DiagnosticLevel` (`OK` < `WARN` < `ERROR`, ordered like ROS 2
 `diagnostic_msgs`) plus an overall = worst-agent level. It folds
 `emergency_stopped` / `fall_detected` (→ ERROR), behavior `failed` (→ ERROR),
-and adapter command-staleness (the real-robot watchdog → WARN, with
-`command_age_sec`). Adapters without those signals do not contribute.
+`in_collision` (→ ERROR) and `yielding` (→ WARN) from the inter-agent proximity
+layer, and adapter command-staleness (the real-robot watchdog → WARN, with
+`command_age_sec`). Adapters/states without those signals do not contribute.
 `AgentToolApi.get_diagnostics()` exposes the same snapshot read-only to AI
 agents. When `runtime.navigation.diagnostics_interval_sec > 0`, a periodic
 `DIAGNOSTICS` event carrying `report.to_dict()` is emitted so replays
