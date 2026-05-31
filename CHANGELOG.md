@@ -8,6 +8,22 @@ practice independently.
 
 ## [Unreleased]
 
+### Changed
+- **Genesis backend now runs on real Genesis 1.0.** Rewrote the Genesis world,
+  adapter, and backend against the actual Genesis 1.0 API (`gs.init(backend=…)`,
+  `gs.Scene(show_viewer=False)`, `add_entity(gs.morphs.*)`, `scene.build()` after
+  spawns, `get_pos`/`get_quat`/`set_pos`/`set_quat`) — replacing an imagined
+  `set_velocity`/`get_pose` surface that never existed on a real entity and was
+  never run against Genesis. A diff-drive base is driven kinematically
+  (unicycle integration written back to the base pose). New
+  `GenesisBackend.finalize()` builds the scene once after all agents spawn.
+  `gnav run --backend genesis` now runs a real scene stepped on `gs.cuda`
+  (RTX 4070 Ti SUPER; smoke: success_rate=1.0, 265 steps, path≈2.139 m,
+  matching the fallback; `genesis_version=1.0.0` captured in env.json; replay
+  rc=0). Guarded by `tests/unit/test_genesis_integration.py` (2 passed on real
+  Genesis), which skips without Genesis so core
+  CI is unchanged. All Genesis imports stay lazy behind the backend boundary.
+
 ## [0.2.0a1] — 2026-05-31
 
 Second v0.2 alpha. Builds on `0.2.0a0` with the real-robot loop closed in

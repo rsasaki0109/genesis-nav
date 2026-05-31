@@ -33,12 +33,27 @@ class GenesisBackend:
     world: WorldEntry
     adapters: dict[str, GenesisDiffDriveAdapter] = field(default_factory=dict)
 
+    _built: bool = False
+
     def step(self, dt_sec: float) -> None:
         del dt_sec
+        # Genesis requires scene.build() after all entities are added and before
+        # the first step. Spawns happen during Runtime construction, so we build
+        # lazily on the first step if the caller did not call finalize().
+        self.finalize()
         scene = self.scene
         step_fn = getattr(scene, "step", None)
         if callable(step_fn):
             step_fn()
+
+    def finalize(self) -> None:
+        """Build the scene once, after every agent has been spawned into it."""
+        if self._built:
+            return
+        build_fn = getattr(self.scene, "build", None)
+        if callable(build_fn):
+            build_fn()
+        self._built = True
 
     def reset(self) -> None:
         scene = self.scene
@@ -47,6 +62,11 @@ class GenesisBackend:
             reset_fn()
 
     def spawn(self, spec: AgentSpec) -> EmbodimentAdapter:
+        if self._built:
+            raise RuntimeError(
+                "cannot spawn after the Genesis scene is built; "
+                "all agents must be spawned before finalize()/step()"
+            )
         entity = self.world.spawn_diff_drive(self.scene, spec)
         adapter = GenesisDiffDriveAdapter(agent_id=spec.agent_id, entity=entity)
         self.adapters[spec.agent_id] = adapter

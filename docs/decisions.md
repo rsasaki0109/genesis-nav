@@ -681,3 +681,44 @@ reciprocal velocity obstacles), and costmap-aware reservation are the follow-ups
 — each now layerable on a tested detect→respond loop rather than invented all at
 once. Response is decoupled from detection (separate radius), so a scenario can
 observe without acting or act without flagging.
+
+## 2026-05-31: Genesis backend targets the real Genesis 1.0 API, kinematic diff-drive
+
+Status: Implemented (v0.2). Closes the longest-standing "ちゃぷちゃぷ" gap: the
+project is named "for Genesis World" yet had never run on real Genesis.
+
+Context:
+The Genesis path (`genesis_nav/genesis/`, `examples/worlds/warehouse_small.py`)
+was written against an *imagined* entity surface — `entity.set_velocity(...)`
+and `entity.get_pose()` — that does not exist on a real Genesis `RigidEntity`,
+and it never called `gs.init()` or `scene.build()`. Unit tests passed only
+because a stub entity defined that imagined surface. Installing genesis-world
+1.0.0 and probing the API showed the real contract: `gs.init(backend=...)` once
+per process, `gs.Scene(show_viewer=False)`, `scene.add_entity(gs.morphs.*)`,
+`scene.build()` after all entities are added, then `scene.step()`; entities
+expose `get_pos`/`get_quat`/`set_pos`/`set_quat`, not the imagined methods.
+
+Decision:
+Rewrite the world + adapter + backend against the real API. A diff-drive base
+is a free rigid `Box` with no articulated drivetrain, so genesis-nav drives it
+*kinematically*: each tick integrate the unicycle model and write the new base
+pose with `set_pos`/`set_quat`; read it back with `get_pos`/`get_quat`. Genesis
+still owns physics (ground plane, contacts, kernel-compiled stepping on GPU).
+Scene lifecycle gains `GenesisBackend.finalize()` (calls `scene.build()` once,
+after Runtime construction has spawned every agent); `step()` also builds lazily
+as a safety net, and `spawn()` after build raises. The adapter keeps a
+duck-typed `set_velocity`/`get_pose` fast path **only** so the existing stub
+tests stay valid without Genesis.
+
+Consequences:
+`gnav run --backend genesis` now runs a real Genesis scene stepped on
+`gs.cuda` (RTX 4070 Ti SUPER, ~187 FPS): measured `success_rate=1.0`, 265 sim
+steps, path ≈ 2.139 m on smoke — matching the deterministic fallback (the
+kinematics agree; GPU float ordering varies only the last digits run-to-run),
+with `genesis_version=1.0.0` finally captured in env.json and replay validating
+(rc=0). The path is guarded by `tests/unit/test_genesis_integration.py`, which
+skips without Genesis (so core CI is unchanged) and runs end to end on the
+Genesis venv (2 passed, rc=0, with `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1`). Kinematic control is honest for a v0.x base; a torque/wheel-joint
+drivetrain (URDF + actuated DOFs) is the follow-up, as is furnishing the
+warehouse (walls/shelves) and a GPU CI lane. The core stays installable without
+Genesis: all Genesis imports remain lazy behind the backend boundary.
