@@ -1,0 +1,50 @@
+scenario_id: bench_nav_basic_narrow_passage
+seed: 42
+world: examples/worlds/warehouse_small.py
+max_sim_seconds: 60
+# Single-agent corridor: row 1 has a 1-cell pinch at col 3 between two obstacles.
+# inflate_cells=1 closes the pinch; the agent detours via the open rows above.
+occupancy_grid:
+  resolution: 1.0
+  origin: [0.0, 0.0]
+  inflate_cells: 1
+  cells:
+    - [0, 0, 0, 0, 0, 0, 0, 0, 0]
+    - [0, 0, 1, 0, 1, 0, 0, 0, 0]
+    - [0, 0, 0, 0, 0, 0, 0, 0, 0]
+    - [0, 0, 0, 0, 0, 0, 0, 0, 0]
+    - [0, 0, 0, 0, 0, 0, 0, 0, 0]
+agents:
+  - id: robot_001
+    type: diff_drive
+    namespace: /robot_001
+    spawn: [0.5, 1.5, 0.0]
+    frames:
+      map: map
+      odom: robot_001/odom
+      base: robot_001/base_link
+    capabilities:
+      - navigate_2d
+      - stop
+      - report_pose
+    authority:
+      mode: autonomous
+      command_ttl_ms: 200
+tasks:
+  - id: task_001
+    type: navigate_to_pose
+    agent: robot_001
+    goal: [8.5, 1.5, 0.0]
+metrics:
+  - success_rate
+  - time_to_goal
+record:
+  rosbag: false
+  events: true
+benchmark:
+  expected:
+    success_rate_min: 1.0
+    task_succeeded_count_min: 1
+    task_failed_count_max: 0
+    time_to_goal_mean_max_sec: 45.0
+    command_rejection_count_max: 0

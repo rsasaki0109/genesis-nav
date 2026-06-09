@@ -1,0 +1,31 @@
+scenario_id: holonomic_smoke
+seed: 42
+world: examples/worlds/warehouse_small.py
+max_sim_seconds: 30
+agents:
+  - id: omni_001
+    type: holonomic
+    namespace: /omni_001
+    spawn: [0.0, 0.0, 0.0]
+    frames:
+      map: map
+      odom: omni_001/odom
+      base: omni_001/base_link
+    capabilities:
+      - navigate_2d
+      - stop
+      - report_pose
+    authority:
+      mode: autonomous
+      command_ttl_ms: 200
+tasks:
+  - id: task_001
+    type: navigate_to_pose
+    agent: omni_001
+    goal: [0.0, 2.0, 0.0]
+metrics:
+  - success_rate
+  - time_to_goal
+record:
+  rosbag: false
+  events: true

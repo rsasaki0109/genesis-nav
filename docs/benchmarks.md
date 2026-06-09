@@ -55,6 +55,10 @@ share state; one scenario's failure does not abort the suite.
    Missing predicates are treated as "no expectation". Unknown keys are
    reported as failures so typos surface immediately.
 
+   `metrics.json` also carries `success_rate_ci` when more than one task
+   completed: a Wilson 95% interval `{low, high, confidence}` around
+   `success_rate`. Single-task runs omit the field.
+
 4. Keep the scenario **deterministic**: fix `seed`, keep `max_sim_seconds`
    tight, avoid wall-clock dependence.
 
@@ -122,7 +126,7 @@ Exit codes:
       "run_dir": "benchmarks/_runs/nav_basic/...",
       "passed": true,
       "failures": [],
-      "metrics": { "success_rate": 1.0, "...": "..." },
+      "metrics": { "success_rate": 1.0, "success_rate_ci": {"low": 0.34, "high": 1.0, "confidence": 0.95}, "...": "..." },
       "expected": { "success_rate_min": 1.0, "...": "..." }
     }
   ]

@@ -9,6 +9,10 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Protocol, TextIO
 
+BENCHMARK_REPORT = "BENCHMARK_REPORT"
+
+POST_SCENARIO_EVENTS: frozenset[str] = frozenset({BENCHMARK_REPORT})
+
 
 @dataclass(frozen=True)
 class RuntimeEvent:
@@ -170,3 +174,10 @@ class JsonlEventWriter:
         )
         self._handle.write(json.dumps(asdict(record), sort_keys=True) + "\n")
         self._handle.flush()
+
+
+def append_runtime_event(path: Path, event: RuntimeEvent) -> None:
+    """Append one serialized event record to an existing JSONL file."""
+
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(asdict(event), sort_keys=True) + "\n")
