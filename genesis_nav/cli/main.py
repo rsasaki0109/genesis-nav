@@ -344,6 +344,7 @@ def run_command(args: argparse.Namespace) -> int:
         near_miss_count=int(summary["near_miss_count"]),
         yield_count=int(summary["yield_count"]),
         headon_reroute_count=int(summary["headon_reroute_count"]),
+        costmap_wait_count=int(summary["costmap_wait_count"]),
     )
     write_json(run_dir / "metrics.json", metrics.to_dict())
     write_report(run_dir / "report.md", scenario, metrics)

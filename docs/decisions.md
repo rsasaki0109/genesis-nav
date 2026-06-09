@@ -751,5 +751,29 @@ approach (re-armed on separation). Pure functions live in
 Consequences:
 The detect → yield → diagnostics loop now covers head-on geometry.
 `benchmarks/multi_agent/headon_avoidance.yaml` guards it (collision = 0,
-both agents succeed). Smarter priority and costmap-aware reservation remain
-follow-ups, layerable on the same signal.
+both agents succeed). Smarter priority remains a follow-up, layerable on the
+same signal.
+
+## 2026-06-10: Costmap-aware path reservation (grid planner)
+
+Status: Implemented (v0.2.1 candidate).
+
+Context:
+Named `resources` leases existed but did not block grid cells, so two agents
+could plan through the same corridor. Yield/head-on help at runtime but do not
+prevent conflicting global plans on a shared lane.
+
+Decision:
+Add `runtime.navigation.costmap_reservation` (default off, grid planner only).
+Each executing agent reserves cells along its remaining forward path in a
+`CostmapReservationStore`. `GridAStarPlanner.plan(..., extra_blocked=…)` treats
+other agents' cells as blocked. Agents that can reach the goal without those
+cells but not with them enter `RESERVING` and retry each tick. Rolling refresh
+as the holder moves releases cells behind it. Events: `COSTMAP_RESERVED`,
+`COSTMAP_RESERVATION_WAIT`; metric `costmap_wait_count`.
+
+Consequences:
+Multi-agent grid scenarios can serialize shared lanes without reactive
+collision. `benchmarks/multi_agent/costmap_corridor.yaml` guards it; multi_agent
+suite is 5/5. Smarter priority (goal distance, RVO) remains a follow-up.
+Named resource leases are unchanged.

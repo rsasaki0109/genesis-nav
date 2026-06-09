@@ -162,9 +162,12 @@ def test_bench_run_multi_agent_passes(tmp_path: Path) -> None:
     )
     assert rc == 0
     report = json.loads(report_path.read_text(encoding="utf-8"))
-    metrics = report["scenarios"][0]["metrics"]
-    assert metrics["task_succeeded_count"] >= 4
-    assert metrics["task_failed_count"] == 0
+    assert report["passed"] == 5
+    assert report["failed"] == 0
+    total_succeeded = sum(
+        s["metrics"]["task_succeeded_count"] for s in report["scenarios"]
+    )
+    assert total_succeeded >= 10
 
 
 def test_bench_run_humanoid_passes(tmp_path: Path) -> None:

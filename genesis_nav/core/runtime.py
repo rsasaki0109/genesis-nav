@@ -16,6 +16,10 @@ from genesis_nav.core.command_gate import CommandDecision, CommandGate, RuntimeC
 from genesis_nav.core.embodiment import DiffDriveKinematics, EmbodimentAdapter
 from genesis_nav.core.lifecycle import LifecycleState
 from genesis_nav.core.task import TaskSpec, TaskStatus
+from genesis_nav.fleet.costmap_reservation import (
+    CostmapReservationStore,
+    collect_path_cells,
+)
 from genesis_nav.fleet.dispatcher import Dispatcher
 from genesis_nav.fleet.queue import TaskQueue
 from genesis_nav.fleet.reservation import ReservationManager
@@ -76,6 +80,7 @@ class RuntimeMetrics:
     near_miss_count: int = 0
     yield_count: int = 0
     headon_reroute_count: int = 0
+    costmap_wait_count: int = 0
 
     def summary(self) -> dict[str, float | int]:
         total = len(self.tasks)
@@ -114,6 +119,7 @@ class RuntimeMetrics:
             "near_miss_count": self.near_miss_count,
             "yield_count": self.yield_count,
             "headon_reroute_count": self.headon_reroute_count,
+            "costmap_wait_count": self.costmap_wait_count,
         }
 
 
@@ -178,6 +184,8 @@ class Runtime:
         # Agent pairs that already received a head-on lateral reroute this
         # approach (cleared when the pair separates beyond headon_radius).
         self._headon_rerouted_pairs: set[frozenset[str]] = set()
+        self._costmap_reservations = CostmapReservationStore()
+        self._costmap_waiting: set[str] = set()
 
     @classmethod
     def from_scenario(
@@ -576,7 +584,7 @@ class Runtime:
                 self.metrics.task_pending_peak, len(self.task_queue)
             )
 
-        for state in self.registry.list_states():
+        for state in sorted(self.registry.list_states(), key=lambda s: s.agent_id):
             if not state.current_task_id:
                 continue
             adapter = self.adapters.get(state.agent_id)
@@ -663,34 +671,67 @@ class Runtime:
                 planned = self._run_planner(
                     state.agent_id, previous_pose, goal, sim_time, episode_id, task_id
                 )
+                if planned is None and self._should_wait_for_costmap(
+                    state.agent_id, previous_pose, goal
+                ):
+                    self._enter_costmap_reserving(
+                        state,
+                        sim_time=sim_time,
+                        episode_id=episode_id,
+                        task_id=task_id,
+                    )
+                    adapter.stop("costmap_reservation")
+                    continue
                 if planned is None:
                     self._fail_task(
                         state, task_id, sim_time, episode_id, reason="plan_failed"
                     )
                     continue
-                self._waypoints[state.agent_id] = planned
-                self._pose_history[state.agent_id] = deque()
-                self._recovery_retries[state.agent_id] = 0
-                state.current_task_status = TaskStatus.EXECUTING
-                if record is not None:
-                    record.started_at_sec = sim_time
-                    record.status = TaskStatus.EXECUTING
-                self.events.write(
-                    ts=sim_time,
-                    episode_id=episode_id,
-                    agent_id=state.agent_id,
-                    event="TASK_STARTED",
-                    task_id=task_id,
-                    data={"goal": goal, "waypoint_count": len(planned)},
-                )
-                self._transition_behavior(
+                self._begin_execution_after_plan(
                     state,
-                    BehaviorState.EXECUTING,
-                    ts=sim_time,
+                    planned,
+                    goal=goal,
+                    pose=previous_pose,
+                    sim_time=sim_time,
                     episode_id=episode_id,
-                    reason="plan_ready",
                     task_id=task_id,
+                    record=record,
                 )
+                continue
+
+            if state.behavior_state is BehaviorState.RESERVING:
+                adapter.stop("costmap_reservation")
+                state.linear_velocity_x = 0.0
+                state.angular_velocity_z = 0.0
+                planned = self._run_planner(
+                    state.agent_id,
+                    previous_pose,
+                    goal,
+                    sim_time,
+                    episode_id,
+                    task_id,
+                    emit_plan_failure=False,
+                )
+                if planned is None and self._should_wait_for_costmap(
+                    state.agent_id, previous_pose, goal
+                ):
+                    continue
+                if planned is None:
+                    self._fail_task(
+                        state, task_id, sim_time, episode_id, reason="plan_failed"
+                    )
+                    continue
+                self._begin_execution_after_plan(
+                    state,
+                    planned,
+                    goal=goal,
+                    pose=previous_pose,
+                    sim_time=sim_time,
+                    episode_id=episode_id,
+                    task_id=task_id,
+                    record=record,
+                )
+                continue
 
             if state.behavior_state is BehaviorState.RECOVERING:
                 resume_at = self._recovery_resume_at_sec.get(state.agent_id, 0.0)
@@ -801,6 +842,9 @@ class Runtime:
                 self._update_stuck_detection(
                     state, sim_time, episode_id, task_id
                 )
+                self._refresh_costmap_reservation(
+                    state.agent_id, new_pose, goal
+                )
             else:
                 self._emit_command_rejected(
                     sim_time, episode_id, state.agent_id, task_id, decision.reason
@@ -870,19 +914,32 @@ class Runtime:
         ts: float,
         episode_id: str,
         task_id: str,
+        *,
+        emit_plan_failure: bool = True,
     ) -> list[tuple[float, float, float]] | None:
+        extra_blocked = frozenset()
+        if self._costmap_reservation_enabled() and isinstance(
+            self.planner, GridAStarPlanner
+        ):
+            extra_blocked = self._costmap_reservations.blocked_for(agent_id)
         try:
-            waypoints = self.planner.plan(start, goal)
+            if isinstance(self.planner, GridAStarPlanner):
+                waypoints = self.planner.plan(
+                    start, goal, extra_blocked=extra_blocked
+                )
+            else:
+                waypoints = self.planner.plan(start, goal)
         except PlannerError as exc:
-            self.metrics.plan_failure_count += 1
-            self.events.write(
-                ts=ts,
-                episode_id=episode_id,
-                agent_id=agent_id,
-                event="PLAN_FAILED",
-                task_id=task_id,
-                data={"reason": str(exc), "goal": goal},
-            )
+            if emit_plan_failure:
+                self.metrics.plan_failure_count += 1
+                self.events.write(
+                    ts=ts,
+                    episode_id=episode_id,
+                    agent_id=agent_id,
+                    event="PLAN_FAILED",
+                    task_id=task_id,
+                    data={"reason": str(exc), "goal": goal},
+                )
             return None
         if not waypoints:
             self.metrics.plan_failure_count += 1
@@ -922,6 +979,168 @@ class Runtime:
                 continue
             break
         return queue[0] if queue else None
+
+    def _costmap_reservation_enabled(self) -> bool:
+        return (
+            self.navigation_config.costmap_reservation
+            and isinstance(self.planner, GridAStarPlanner)
+        )
+
+    def _should_wait_for_costmap(
+        self,
+        agent_id: str,
+        start: tuple[float, float, float],
+        goal: tuple[float, float, float],
+    ) -> bool:
+        if not self._costmap_reservation_enabled():
+            return False
+        blocked = self._costmap_reservations.blocked_for(agent_id)
+        if not blocked:
+            return False
+        try:
+            self.planner.plan(start, goal, extra_blocked=frozenset())
+        except PlannerError:
+            return False
+        return True
+
+    def _enter_costmap_reserving(
+        self,
+        state,  # type: ignore[no-untyped-def]
+        *,
+        sim_time: float,
+        episode_id: str,
+        task_id: str,
+    ) -> None:
+        agent_id = state.agent_id
+        if agent_id not in self._costmap_waiting:
+            self._costmap_waiting.add(agent_id)
+            self.metrics.costmap_wait_count += 1
+            blocked = self._costmap_reservations.blocked_for(agent_id)
+            self.events.write(
+                ts=sim_time,
+                episode_id=episode_id,
+                agent_id=agent_id,
+                event="COSTMAP_RESERVATION_WAIT",
+                task_id=task_id,
+                data={"blocked_cell_count": len(blocked)},
+            )
+        self._transition_behavior(
+            state,
+            BehaviorState.RESERVING,
+            ts=sim_time,
+            episode_id=episode_id,
+            reason="costmap_blocked",
+            task_id=task_id,
+        )
+
+    def _begin_execution_after_plan(
+        self,
+        state,  # type: ignore[no-untyped-def]
+        planned: list[tuple[float, float, float]],
+        *,
+        goal: tuple[float, float, float],
+        pose: tuple[float, float, float],
+        sim_time: float,
+        episode_id: str,
+        task_id: str,
+        record: _TaskRecord | None,
+    ) -> None:
+        self._waypoints[state.agent_id] = planned
+        self._pose_history[state.agent_id] = deque()
+        self._recovery_retries[state.agent_id] = 0
+        self._claim_costmap_path(
+            state.agent_id,
+            pose,
+            goal,
+            planned,
+            sim_time=sim_time,
+            episode_id=episode_id,
+            task_id=task_id,
+        )
+        state.current_task_status = TaskStatus.EXECUTING
+        if record is not None:
+            record.started_at_sec = sim_time
+            record.status = TaskStatus.EXECUTING
+        self.events.write(
+            ts=sim_time,
+            episode_id=episode_id,
+            agent_id=state.agent_id,
+            event="TASK_STARTED",
+            task_id=task_id,
+            data={"goal": goal, "waypoint_count": len(planned)},
+        )
+        self._transition_behavior(
+            state,
+            BehaviorState.EXECUTING,
+            ts=sim_time,
+            episode_id=episode_id,
+            reason="plan_ready",
+            task_id=task_id,
+        )
+        self._costmap_waiting.discard(state.agent_id)
+
+    def _claim_costmap_path(
+        self,
+        agent_id: str,
+        pose: tuple[float, float, float],
+        goal: tuple[float, float, float],
+        waypoints: list[tuple[float, float, float]],
+        *,
+        sim_time: float,
+        episode_id: str,
+        task_id: str,
+    ) -> None:
+        if not self._costmap_reservation_enabled():
+            return
+        cells = self._costmap_cells_for_agent(agent_id, pose, goal)
+        self._costmap_reservations.set_cells(agent_id, cells)
+        self.events.write(
+            ts=sim_time,
+            episode_id=episode_id,
+            agent_id=agent_id,
+            event="COSTMAP_RESERVED",
+            task_id=task_id,
+            data={
+                "cell_count": len(cells),
+                "cells": [list(cell) for cell in sorted(cells)],
+            },
+        )
+
+    def _costmap_cells_for_agent(
+        self,
+        agent_id: str,
+        pose: tuple[float, float, float],
+        goal: tuple[float, float, float] | None,
+    ) -> set[tuple[int, int]]:
+        if not self._costmap_reservation_enabled() or goal is None:
+            return set()
+        grid = self.planner.grid
+        queue = self._waypoints.get(agent_id, [])
+        tol = self.navigation_config.waypoint_tolerance_m
+        points = [pose]
+        for wp in queue:
+            if math.hypot(wp[0] - pose[0], wp[1] - pose[1]) > tol:
+                points.append(wp)
+        if math.hypot(goal[0] - points[-1][0], goal[1] - points[-1][1]) > tol:
+            points.append(goal)
+        if len(points) < 2:
+            return set()
+        return collect_path_cells(grid, points)
+
+    def _refresh_costmap_reservation(
+        self,
+        agent_id: str,
+        pose: tuple[float, float, float],
+        goal: tuple[float, float, float] | None,
+    ) -> None:
+        if not self._costmap_reservation_enabled() or goal is None:
+            return
+        cells = self._costmap_cells_for_agent(agent_id, pose, goal)
+        if not cells:
+            self._costmap_reservations.release(agent_id)
+            return
+        if cells != set(self._costmap_reservations.cells_for(agent_id)):
+            self._costmap_reservations.set_cells(agent_id, cells)
 
     def _reached_goal(
         self,
@@ -1040,6 +1259,8 @@ class Runtime:
         self._pose_history.pop(agent_id, None)
         self._recovery_resume_at_sec.pop(agent_id, None)
         self._recovery_retries.pop(agent_id, None)
+        self._costmap_reservations.release(agent_id)
+        self._costmap_waiting.discard(agent_id)
 
     def _poll_safety_signals(self, *, sim_time: float, episode_id: str) -> None:
         """Detect rising-edge safety conditions from adapters.
@@ -1265,6 +1486,15 @@ class Runtime:
                     "waypoint_count": len(waypoints),
                 },
             )
+            self._claim_costmap_path(
+                agent_id,
+                pose,
+                goal,
+                waypoints,
+                sim_time=sim_time,
+                episode_id=episode_id,
+                task_id=task_id,
+            )
 
     def _poll_command_watchdog(
         self, adapter: EmbodimentAdapter, state, sim_time: float, episode_id: str
@@ -1421,6 +1651,15 @@ class Runtime:
         self._waypoints[state.agent_id] = planned
         self._pose_history[state.agent_id] = deque()
         self._recovery_retries[state.agent_id] = 0
+        self._claim_costmap_path(
+            state.agent_id,
+            pose,
+            goal,
+            planned,
+            sim_time=sim_time,
+            episode_id=episode_id,
+            task_id=task_id,
+        )
         self.metrics.replan_count += 1
         self.events.write(
             ts=sim_time,

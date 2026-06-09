@@ -36,6 +36,7 @@ _MIN_CHECKS: Mapping[str, str] = {
     "near_miss_count_min": "near_miss_count",
     "yield_count_min": "yield_count",
     "headon_reroute_count_min": "headon_reroute_count",
+    "costmap_wait_count_min": "costmap_wait_count",
 }
 
 _MAX_CHECKS: Mapping[str, str] = {

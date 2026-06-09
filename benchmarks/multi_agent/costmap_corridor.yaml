@@ -1,0 +1,49 @@
+scenario_id: bench_multi_agent_costmap_corridor
+seed: 11
+world: examples/worlds/warehouse_small.py
+max_sim_seconds: 60
+# Single-lane grid corridor (row 1). Two agents swap ends: without costmap
+# reservation both plan the same lane and meet in the middle; with
+# costmap_reservation the lower-priority agent waits in RESERVING until the
+# corridor cells clear. Guards the costmap-aware reservation slice.
+occupancy_grid:
+  resolution: 1.0
+  origin: [0.0, 0.0]
+  cells:
+    - [1, 1, 1, 1, 1, 1, 1]
+    - [1, 0, 0, 0, 0, 0, 1]
+    - [1, 1, 1, 1, 1, 1, 1]
+runtime:
+  navigation:
+    planner: grid
+    costmap_reservation: true
+  collision:
+    collision_radius_m: 0.0
+    near_miss_radius_m: 0.0
+    yield_radius_m: 0.0
+    headon_radius_m: 0.0
+agents:
+  - id: a
+    type: diff_drive
+    namespace: /a
+    spawn: [1.5, 1.5, 0.0]
+    capabilities: [navigate_2d, stop, report_pose]
+    authority: {mode: autonomous, command_ttl_ms: 200}
+  - id: b
+    type: diff_drive
+    namespace: /b
+    spawn: [5.5, 1.5, 3.14159]
+    capabilities: [navigate_2d, stop, report_pose]
+    authority: {mode: autonomous, command_ttl_ms: 200}
+tasks:
+  - {id: ta, type: navigate_to_pose, agent: a, goal: [5.5, 1.5, 0.0]}
+  - {id: tb, type: navigate_to_pose, agent: b, goal: [1.5, 1.5, 3.14159]}
+metrics: [success_rate]
+record: {rosbag: false, events: true}
+benchmark:
+  expected:
+    success_rate_min: 1.0
+    task_succeeded_count_min: 2
+    task_failed_count_max: 0
+    costmap_wait_count_min: 1
+    collision_count_max: 0

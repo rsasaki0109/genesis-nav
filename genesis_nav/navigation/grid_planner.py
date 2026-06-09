@@ -122,15 +122,28 @@ class GridAStarPlanner:
         self,
         start: tuple[float, float, float],
         goal: tuple[float, float, float],
+        *,
+        extra_blocked: frozenset[tuple[int, int]] = frozenset(),
+    ) -> list[tuple[float, float, float]]:
+        grid = self.grid
+        if extra_blocked:
+            grid = self.grid.with_blocked(extra_blocked)
+        return self._plan_on_grid(grid, start, goal)
+
+    def _plan_on_grid(
+        self,
+        grid: OccupancyGrid,
+        start: tuple[float, float, float],
+        goal: tuple[float, float, float],
     ) -> list[tuple[float, float, float]]:
         sc = self.grid.world_to_cell(start[0], start[1])
         gc = self.grid.world_to_cell(goal[0], goal[1])
-        if self.grid.is_blocked(*gc):
+        if grid.is_blocked(*gc):
             raise PlannerError(f"goal cell {gc} is blocked")
-        if self.grid.is_blocked(*sc):
+        if grid.is_blocked(*sc):
             raise PlannerError(f"start cell {sc} is blocked")
 
-        cells = _astar(self.grid, sc, gc)
+        cells = _astar(grid, sc, gc)
         if not cells:
             raise PlannerError(f"no path from {sc} to {gc}")
 

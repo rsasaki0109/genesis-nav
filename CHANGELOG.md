@@ -8,6 +8,13 @@ practice independently.
 
 ## [Unreleased]
 
+### Added
+- **Costmap-aware reservation** — `runtime.navigation.costmap_reservation`
+  (default false, grid planner only). Executing agents hold forward path cells;
+  others enter `RESERVING` until cells clear. Events `COSTMAP_RESERVED` /
+  `COSTMAP_RESERVATION_WAIT`; metric `costmap_wait_count`. Bench
+  `benchmarks/multi_agent/costmap_corridor.yaml`.
+
 ## [0.2.0] — 2026-06-10
 
 v0.2 formal release. Builds on `0.2.0a1` with real Genesis 1.0 integration,

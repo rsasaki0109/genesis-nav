@@ -25,7 +25,7 @@ One-page summary of what v0.1 shipped, what v0.2 adds, and what remains open.
 
 ## Still open (v0.3+ direction)
 
-- Smarter priority (goal distance, RVO) and costmap-aware reservation
+- Smarter priority (goal distance, RVO)
 - Nav2 costmap layers / recovery behaviors
 - Non-loopback real-hardware transports
 - `gnav replay --to-rosbag` exporter

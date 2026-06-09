@@ -35,6 +35,7 @@ class MetricsSnapshot:
     watchdog_stop_count: int = 0
     yield_count: int = 0
     headon_reroute_count: int = 0
+    costmap_wait_count: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
