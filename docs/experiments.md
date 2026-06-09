@@ -56,6 +56,10 @@ source ros2_ws/install/setup.bash
 gnav run examples/scenarios/smoke.yaml --fast --ros
 ```
 
+| 2026-06-10 | head-on lateral reroute (unit + e2e, `test_headon_avoidance.py`) | pending | `runtime.collision.headon_radius_m` / `headon_lateral_offset_m`; lower-priority agent replans with lateral detour on head-on conflict, emits `HEADON_REROUTE`; yield-only still collides on same geometry; `benchmarks/multi_agent/headon_avoidance.yaml` passes (sr=1.0, collision=0); multi_agent suite 4/4 | Closes the head-on follow-up from the 2026-05-29 proximity ADR. Smarter priority + costmap reservation remain open. |
+| 2026-06-10 | Genesis URDF + furnished warehouse (`test_genesis_urdf_adapter.py`) | pending | `examples/robots/diff_drive.urdf`, `GENESIS_NAV_SPAWN_URDF=1`, wheel DOF velocity mapping in adapter; warehouse walls/shelves; `.github/workflows/genesis.yaml` | Closes Genesis ADR follow-ups (URDF drivetrain, furnished world, GPU CI lane). Kinematic box remains default. |
+| 2026-06-10 | v0.2.0 release | pending | 207 unit tests pass; multi_agent 4/4; docs/roadmap_v02.md + architecture Mermaid | Formal v0.2 tag after 0.2.0a1 + Genesis + head-on slices. |
+
 ## Benchmark History
 
 Benchmark history starts once v0.1 scenario execution is wired to Genesis.

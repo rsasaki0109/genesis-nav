@@ -1,26 +1,27 @@
 """Genesis-backed embodiment adapter.
 
-Wraps a real Genesis `RigidEntity` (a free rigid body) and satisfies the
-`EmbodimentAdapter` Protocol. The body has no articulated drivetrain, so
-genesis-nav drives it *kinematically*: each `apply_command` integrates the
-commanded body-frame velocity over `dt_sec` and writes the new base pose with
-the entity's `set_pos` / `set_quat`. The Genesis scene still owns physics
-(ground plane, contacts, kernel-compiled stepping); the base pose is commanded,
-which is the honest model for a v0.x diff-drive base.
-
-This targets the *real* Genesis 1.0 API (verified on genesis-world 1.0.0):
-`get_pos()`/`get_quat()` return tensors, `set_pos([x,y,z])`/`set_quat([w,x,y,z])`
-move the body. The earlier `set_velocity`/`get_pose` surface did not exist on a
-real entity; a duck-typed fast path is kept only for stub entities in tests.
+Wraps a real Genesis `RigidEntity` (a free rigid body or URDF articulation)
+and satisfies the `EmbodimentAdapter` Protocol. When the entity exposes diff-drive
+wheel joints, commands are mapped to joint velocities via
+``control_dofs_velocity``. Otherwise the body is driven *kinematically*: each
+``apply_command`` integrates the commanded body-frame velocity over ``dt_sec`` and
+writes the new base pose with ``set_pos`` / ``set_quat``.
 """
 
 from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from genesis_nav.core.command_gate import RuntimeCommand
+
+DEFAULT_WHEEL_JOINTS = ("left_wheel_joint", "right_wheel_joint")
+DEFAULT_WHEEL_TRACK_M = 0.44
+DIFF_DRIVE_URDF = (
+    Path(__file__).resolve().parents[2] / "examples" / "robots" / "diff_drive.urdf"
+)
 
 
 @dataclass
@@ -38,6 +39,13 @@ class GenesisDiffDriveAdapter:
     _yaw: float = 0.0
     _seeded: bool = False
     _stop_reasons: list[str] = field(default_factory=list)
+    _wheel_dof_indices: tuple[int, ...] = ()
+    wheel_track_m: float = DEFAULT_WHEEL_TRACK_M
+
+    @classmethod
+    def from_entity(cls, agent_id: str, entity: Any) -> "GenesisDiffDriveAdapter":
+        dofs = resolve_wheel_dof_indices(entity, DEFAULT_WHEEL_JOINTS)
+        return cls(agent_id=agent_id, entity=entity, _wheel_dof_indices=dofs)
 
     def read_pose(self) -> tuple[float, float, float]:
         # Stub-entity fast path (unit tests): explicit get_pose() wins.
@@ -65,7 +73,12 @@ class GenesisDiffDriveAdapter:
             setter(self.last_linear_x, self.last_linear_y, self.last_angular_z)
             return
 
-        # Real Genesis: integrate the unicycle model and command the new pose.
+        if self._wheel_dof_indices:
+            self._apply_wheel_velocities(self.last_linear_x, self.last_angular_z)
+            self._sync_from_entity()
+            return
+
+        # Real Genesis without wheel joints: integrate kinematically.
         self._sync_from_entity()
         dt = float(dt_sec)
         if dt > 0.0:
@@ -83,7 +96,10 @@ class GenesisDiffDriveAdapter:
         if callable(setter):
             setter(0.0, 0.0, 0.0)
             return
-        # Real Genesis: hold position (zero velocity = leave pose as-is).
+        if self._wheel_dof_indices:
+            self._apply_wheel_velocities(0.0, 0.0)
+            return
+        # Real Genesis without wheel joints: hold pose.
         self._sync_from_entity()
         self._write_pose()
 
@@ -138,6 +154,39 @@ class GenesisDiffDriveAdapter:
                 set_quat([math.cos(half), 0.0, 0.0, math.sin(half)])
             except Exception:
                 pass
+
+    def _apply_wheel_velocities(self, linear_x: float, angular_z: float) -> None:
+        half_track = self.wheel_track_m * 0.5
+        left = linear_x - angular_z * half_track
+        right = linear_x + angular_z * half_track
+        control = getattr(self.entity, "control_dofs_velocity", None)
+        if not callable(control):
+            return
+        try:
+            control([left, right], list(self._wheel_dof_indices))
+        except Exception:
+            pass
+
+
+def resolve_wheel_dof_indices(
+    entity: Any, joint_names: tuple[str, ...]
+) -> tuple[int, ...]:
+    """Return local DOF indices for ``joint_names`` when the entity supports it."""
+
+    indices: list[int] = []
+    get_joint = getattr(entity, "get_joint", None)
+    if not callable(get_joint):
+        return ()
+    for name in joint_names:
+        try:
+            joint = get_joint(name)
+        except Exception:
+            return ()
+        dof = getattr(joint, "dof_idx_local", None)
+        if dof is None:
+            return ()
+        indices.append(int(dof))
+    return tuple(indices)
 
 
 def _wrap(theta: float) -> float:

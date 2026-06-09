@@ -50,3 +50,10 @@
 A user can install `genesis-nav`, run one command, watch multiple robots navigate
 in Genesis, inspect ROS 2 topics, record a rosbag, replay the run, and see
 metrics.
+
+## v0.2 status
+
+Phase 2 items (real robot, Nav2, teleop, diagnostics, safety gate) shipped in
+v0.2.0 along with real Genesis 1.0, spatial safety (detect → yield → head-on
+reroute), and a furnished warehouse world. See `docs/roadmap_v02.md` for the
+v0.1 → v0.2 boundary and remaining follow-ups.

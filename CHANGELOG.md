@@ -8,6 +8,32 @@ practice independently.
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-06-10
+
+v0.2 formal release. Builds on `0.2.0a1` with real Genesis 1.0 integration,
+head-on lateral reroute, Genesis URDF wheel-joint spawn, furnished warehouse
+world, v0.2 boundary docs, architecture diagrams, and a Genesis CI lane.
+
+### Added
+- **Head-on lateral reroute** — `runtime.collision.headon_radius_m` /
+  `headon_lateral_offset_m` (0 = disabled). Lower-priority agents replan with a
+  lateral detour when facing a higher-priority agent on a shared corridor.
+  Emits `HEADON_REROUTE`, bumps `headon_reroute_count`. Evaluated before yield
+  (stop-and-wait fails on narrow corridors). New bench
+  `benchmarks/multi_agent/headon_avoidance.yaml`; predicates
+  `headon_reroute_count_min`.
+- **Genesis URDF diff-drive** — `examples/robots/diff_drive.urdf` with
+  `left_wheel_joint` / `right_wheel_joint`. Set `GENESIS_NAV_SPAWN_URDF=1` to
+  spawn via `gs.morphs.URDF`; `GenesisDiffDriveAdapter` maps unicycle commands
+  to `control_dofs_velocity` when wheel DOFs are present (kinematic box remains
+  the default).
+- **Furnished warehouse world** — perimeter walls and shelf blocks in
+  `examples/worlds/warehouse_small.py`.
+- **Genesis CI lane** — `.github/workflows/genesis.yaml` runs integration tests
+  when `genesis-world` is installable (skips otherwise).
+- **Docs** — `docs/roadmap_v02.md` (v0.1 → v0.2 boundary), Mermaid diagrams in
+  `docs/architecture.md`.
+
 ### Changed
 - **Genesis backend now runs on real Genesis 1.0.** Rewrote the Genesis world,
   adapter, and backend against the actual Genesis 1.0 API (`gs.init(backend=…)`,
@@ -21,8 +47,8 @@ practice independently.
   (GPU; smoke: success_rate=1.0, 265 steps, path≈2.139 m,
   matching the fallback; `genesis_version=1.0.0` captured in env.json; replay
   rc=0). Guarded by `tests/unit/test_genesis_integration.py` (2 passed on real
-  Genesis), which skips without Genesis so core
-  CI is unchanged. All Genesis imports stay lazy behind the backend boundary.
+  Genesis), which skips without Genesis so core CI is unchanged. All Genesis
+  imports stay lazy behind the backend boundary.
 
 ## [0.2.0a1] — 2026-05-31
 

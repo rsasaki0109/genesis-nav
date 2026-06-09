@@ -1,0 +1,41 @@
+scenario_id: bench_multi_agent_headon
+seed: 7
+world: examples/worlds/warehouse_small.py
+max_sim_seconds: 45
+# Two agents meet head-on on y=0: a drives east, b drives west. Yield alone
+# fails here (the yielding agent stops in the corridor and the higher-priority
+# agent drives into it). With head-on lateral reroute enabled, the
+# lower-priority agent (b) sidesteps before continuing — collision=0, both
+# succeed. Guards the head-on response slice.
+runtime:
+  collision:
+    collision_radius_m: 0.3
+    near_miss_radius_m: 0.8
+    headon_radius_m: 3.0
+    headon_lateral_offset_m: 1.5
+agents:
+  - id: a
+    type: diff_drive
+    namespace: /a
+    spawn: [0.0, 0.0, 0.0]
+    capabilities: [navigate_2d, stop, report_pose]
+    authority: {mode: autonomous, command_ttl_ms: 200}
+  - id: b
+    type: diff_drive
+    namespace: /b
+    spawn: [5.0, 0.0, 3.14159]
+    capabilities: [navigate_2d, stop, report_pose]
+    authority: {mode: autonomous, command_ttl_ms: 200}
+tasks:
+  - {id: ta, type: navigate_to_pose, agent: a, goal: [5.0, 0.0, 0.0]}
+  - {id: tb, type: navigate_to_pose, agent: b, goal: [0.0, 0.0, 3.14159]}
+metrics: [success_rate]
+record: {rosbag: false, events: true}
+benchmark:
+  expected:
+    success_rate_min: 1.0
+    task_succeeded_count_min: 2
+    task_failed_count_max: 0
+    headon_reroute_count_min: 1
+    collision_count_max: 0
+    near_miss_count_max: 0

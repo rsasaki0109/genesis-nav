@@ -23,6 +23,7 @@ from genesis_nav.fleet.resources import ResourceCatalog
 from genesis_nav.humanoid.adapter import HumanoidIntentAdapter
 from genesis_nav.navigation.behavior import BehaviorState, can_transition
 from genesis_nav.navigation.config import CollisionConfig, NavigationConfig
+from genesis_nav.navigation.headon import is_headon_conflict, lateral_detour_waypoints
 from genesis_nav.navigation.global_planner import StraightLinePlanner
 from genesis_nav.navigation.grid_planner import (
     GridAStarPlanner,
@@ -74,6 +75,7 @@ class RuntimeMetrics:
     collision_count: int = 0
     near_miss_count: int = 0
     yield_count: int = 0
+    headon_reroute_count: int = 0
 
     def summary(self) -> dict[str, float | int]:
         total = len(self.tasks)
@@ -111,6 +113,7 @@ class RuntimeMetrics:
             "collision_count": self.collision_count,
             "near_miss_count": self.near_miss_count,
             "yield_count": self.yield_count,
+            "headon_reroute_count": self.headon_reroute_count,
         }
 
 
@@ -172,6 +175,9 @@ class Runtime:
         # Agents currently yielding right-of-way, so AGENT_YIELDED fires once per
         # yield episode (on the rising edge).
         self._yielding: set[str] = set()
+        # Agent pairs that already received a head-on lateral reroute this
+        # approach (cleared when the pair separates beyond headon_radius).
+        self._headon_rerouted_pairs: set[frozenset[str]] = set()
 
     @classmethod
     def from_scenario(
@@ -600,6 +606,18 @@ class Runtime:
 
             if goal is None:
                 continue
+
+            # Head-on response: lateral reroute before yield — stop-and-wait
+            # fails on a shared corridor because the yielding agent blocks it.
+            if state.behavior_state is BehaviorState.EXECUTING:
+                self._try_headon_reroute(
+                    state,
+                    previous_pose,
+                    goal,
+                    sim_time=sim_time,
+                    episode_id=episode_id,
+                    task_id=task_id,
+                )
 
             # Proximity response: yield right-of-way to a higher-priority agent
             # inside the yield radius. The yielding agent stops this tick; the
@@ -1187,6 +1205,66 @@ class Runtime:
             if math.hypot(pose[0] - other_pose[0], pose[1] - other_pose[1]) <= radius:
                 return True
         return False
+
+    def _try_headon_reroute(
+        self,
+        state,  # type: ignore[no-untyped-def]
+        pose: tuple[float, float, float],
+        goal: tuple[float, float, float],
+        *,
+        sim_time: float,
+        episode_id: str,
+        task_id: str,
+    ) -> None:
+        """Replan with a lateral detour when head-on with a higher-priority agent."""
+
+        cfg = self.collision_config
+        if not cfg.headon_enabled:
+            return
+        agent_id = state.agent_id
+        for other_state in self.registry.list_states():
+            other_id = other_state.agent_id
+            if other_id >= agent_id:
+                continue
+            if not other_state.current_task_id:
+                continue
+            other_goal = other_state.current_goal
+            if other_goal is None:
+                continue
+            other = self.adapters.get(other_id)
+            if other is None:
+                continue
+            other_pose = other.read_pose()
+            distance = math.hypot(pose[0] - other_pose[0], pose[1] - other_pose[1])
+            pair = frozenset((agent_id, other_id))
+            if distance > cfg.headon_radius_m:
+                self._headon_rerouted_pairs.discard(pair)
+                continue
+            if pair in self._headon_rerouted_pairs:
+                continue
+            if not is_headon_conflict(pose, goal, other_pose, other_goal):
+                continue
+
+            waypoints = lateral_detour_waypoints(
+                pose, goal, other_pose, cfg.headon_lateral_offset_m
+            )
+            self._waypoints[agent_id] = waypoints
+            self._headon_rerouted_pairs.add(pair)
+            self._pose_history[agent_id] = deque()
+            self.metrics.headon_reroute_count += 1
+            self.events.write(
+                ts=sim_time,
+                episode_id=episode_id,
+                agent_id=agent_id,
+                event="HEADON_REROUTE",
+                task_id=task_id,
+                data={
+                    "other_agent": other_id,
+                    "distance_m": distance,
+                    "offset_m": cfg.headon_lateral_offset_m,
+                    "waypoint_count": len(waypoints),
+                },
+            )
 
     def _poll_command_watchdog(
         self, adapter: EmbodimentAdapter, state, sim_time: float, episode_id: str
