@@ -35,6 +35,7 @@ _MIN_CHECKS: Mapping[str, str] = {
     "collision_count_min": "collision_count",
     "near_miss_count_min": "near_miss_count",
     "yield_count_min": "yield_count",
+    "headon_reroute_count_min": "headon_reroute_count",
 }
 
 _MAX_CHECKS: Mapping[str, str] = {

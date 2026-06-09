@@ -68,7 +68,7 @@ class GenesisBackend:
                 "all agents must be spawned before finalize()/step()"
             )
         entity = self.world.spawn_diff_drive(self.scene, spec)
-        adapter = GenesisDiffDriveAdapter(agent_id=spec.agent_id, entity=entity)
+        adapter = GenesisDiffDriveAdapter.from_entity(agent_id=spec.agent_id, entity=entity)
         self.adapters[spec.agent_id] = adapter
         return adapter
 

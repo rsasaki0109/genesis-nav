@@ -722,3 +722,34 @@ Genesis venv (2 passed, rc=0, with `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1`). Kinemati
 drivetrain (URDF + actuated DOFs) is the follow-up, as is furnishing the
 warehouse (walls/shelves) and a GPU CI lane. The core stays installable without
 Genesis: all Genesis imports remain lazy behind the backend boundary.
+
+Update (2026-06-10): warehouse furnishing (perimeter walls + shelf blocks),
+URDF wheel-joint spawn path (`examples/robots/diff_drive.urdf`,
+`GENESIS_NAV_SPAWN_URDF=1`), and a dedicated `.github/workflows/genesis.yaml`
+CI lane (skips when Genesis is not installable) close the follow-ups named
+above. Kinematic box spawn remains the default for backward compatibility.
+
+## 2026-06-10: Head-on lateral reroute (proximity response slice)
+
+Status: Implemented (v0.2.0).
+
+Context:
+Yield (stop-and-wait) resolves crossing conflicts but fails on a shared
+corridor: the lower-priority agent stops in place and the higher-priority agent
+drives into it. The 2026-05-29 proximity ADR named lateral reroute as the
+head-on follow-up.
+
+Decision:
+Add `runtime.collision.headon_radius_m` and `headon_lateral_offset_m` (both
+default 0 = off). Each tick, before yield, an executing lower-priority agent
+detects a head-on conflict with a higher-priority agent (opposing headings,
+shared corridor, within radius) and replans with a lateral detour waypoint
+(`HEADON_REROUTE` event, `headon_reroute_count`). Pairs are rerouted once per
+approach (re-armed on separation). Pure functions live in
+`genesis_nav/navigation/headon.py`.
+
+Consequences:
+The detect → yield → diagnostics loop now covers head-on geometry.
+`benchmarks/multi_agent/headon_avoidance.yaml` guards it (collision = 0,
+both agents succeed). Smarter priority and costmap-aware reservation remain
+follow-ups, layerable on the same signal.

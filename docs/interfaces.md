@@ -562,7 +562,9 @@ runtime:
   collision:
     collision_radius_m: 0.3   # 0 disables (default)
     near_miss_radius_m: 1.0   # 0 disables (default)
-    yield_radius_m: 1.2       # 0 disables response (default)
+    yield_radius_m: 1.2       # 0 disables yield (default)
+    headon_radius_m: 3.0       # 0 disables head-on reroute (default)
+    headon_lateral_offset_m: 1.5  # sidestep distance for head-on reroute
 ```
 
 Each tick the runtime measures the planar distance between every agent pair. On
@@ -590,11 +592,20 @@ not mistaken for being stuck, and it emits `AGENT_YIELDED`
 bumping `yield_count`. An idle agent parked at its goal is never yielded to.
 This is a reactive stop-and-wait scheme: it resolves crossing conflicts (one
 agent waits, the other passes, then it proceeds) but not head-on conflicts on a
-shared line, which need a lateral reroute — a documented follow-up alongside
-smarter priority (goal distance, reciprocal velocity obstacles) and costmap-aware
-reservation. `benchmarks/multi_agent/yield_avoidance.yaml` guards it: the same
+shared line — those need a lateral reroute (below). Smarter priority (goal
+distance, reciprocal velocity obstacles) and costmap-aware reservation remain
+follow-ups. `benchmarks/multi_agent/yield_avoidance.yaml` guards it: the same
 crossing that collides under detection-only reaches `collision = near_miss = 0`
 with response on, both agents still succeeding.
+
+**Head-on response (lateral reroute).** When `headon_radius_m > 0`, an executing
+lower-priority agent replans with a lateral detour waypoint when it detects a
+head-on conflict with a higher-priority agent (same lexicographic order as
+yield). Emits `HEADON_REROUTE` and bumps `headon_reroute_count`. Independent
+from yield — scenarios can enable either or both. Evaluated before yield each
+tick because stop-and-wait fails on a shared corridor (the stopped agent
+blocks the higher-priority path). `benchmarks/multi_agent/headon_avoidance.yaml`
+guards it.
 
 ## Run Directory Layout
 

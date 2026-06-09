@@ -104,6 +104,11 @@ class CollisionConfig:
     # radius, the lower-priority agent yields (stops this tick). 0 disables, so
     # detection (above) and response are independently switchable.
     yield_radius_m: float = 0.0
+    # Head-on *response*: when a higher-priority agent is ahead on a shared
+    # corridor, the lower-priority agent replans with a lateral detour. 0
+    # disables. Independent from yield (crossing vs head-on).
+    headon_radius_m: float = 0.0
+    headon_lateral_offset_m: float = 0.8
 
     @property
     def enabled(self) -> bool:
@@ -112,6 +117,10 @@ class CollisionConfig:
     @property
     def response_enabled(self) -> bool:
         return self.yield_radius_m > 0.0
+
+    @property
+    def headon_enabled(self) -> bool:
+        return self.headon_radius_m > 0.0
 
     @classmethod
     def from_scenario_raw(cls, raw: dict[str, Any] | None) -> "CollisionConfig":
@@ -127,12 +136,27 @@ class CollisionConfig:
             block.get("near_miss_radius_m", cls.near_miss_radius_m)
         )
         yield_radius_m = float(block.get("yield_radius_m", cls.yield_radius_m))
-        if min(collision_radius_m, near_miss_radius_m, yield_radius_m) < 0.0:
-            raise ValueError("runtime.collision radii must be non-negative")
+        headon_radius_m = float(block.get("headon_radius_m", cls.headon_radius_m))
+        headon_lateral_offset_m = float(
+            block.get("headon_lateral_offset_m", cls.headon_lateral_offset_m)
+        )
+        if (
+            min(
+                collision_radius_m,
+                near_miss_radius_m,
+                yield_radius_m,
+                headon_radius_m,
+                headon_lateral_offset_m,
+            )
+            < 0.0
+        ):
+            raise ValueError("runtime.collision radii and offsets must be non-negative")
         return cls(
             collision_radius_m=collision_radius_m,
             near_miss_radius_m=near_miss_radius_m,
             yield_radius_m=yield_radius_m,
+            headon_radius_m=headon_radius_m,
+            headon_lateral_offset_m=headon_lateral_offset_m,
         )
 
 

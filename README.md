@@ -159,5 +159,6 @@ issues.
   how to add a scenario or benchmark.
 - [`docs/good_first_issues.md`](docs/good_first_issues.md) — ten curated
   starting points.
+- [`docs/roadmap_v02.md`](docs/roadmap_v02.md) — v0.1 → v0.2 boundary.
 - [`docs/decisions.md`](docs/decisions.md) — read before any architectural
   change.
