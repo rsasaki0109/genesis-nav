@@ -35,12 +35,16 @@ from genesis_nav.navigation.grid_planner import (
     build_planner,
 )
 from genesis_nav.navigation.obstacles import ObstacleSource, build_obstacle_source
-from genesis_nav.navigation.local_controller import SimpleLocalController
+from genesis_nav.navigation.local_controller import (
+    HolonomicLocalController,
+    SimpleLocalController,
+)
 from genesis_nav.observability.diagnostics import (
     DiagnosticsReport,
     collect_diagnostics,
 )
 from genesis_nav.observability.events import EventSink
+from genesis_nav.robots.holonomic import HolonomicKinematics
 
 StepCallback = Callable[[float], None]
 AdapterFactory = Callable[["object"], "EmbodimentAdapter"]  # noqa: F821
@@ -56,6 +60,7 @@ class _TaskRecord:
     finished_at_sec: float | None = None
     status: TaskStatus = TaskStatus.ASSIGNED
     path_length_m: float = 0.0
+    dwell_sec: float = 0.0
     failure_reason: str = ""
 
 
@@ -81,6 +86,8 @@ class RuntimeMetrics:
     yield_count: int = 0
     headon_reroute_count: int = 0
     costmap_wait_count: int = 0
+    dwell_count: int = 0
+    dwell_time_sec: float = 0.0
 
     def summary(self) -> dict[str, float | int]:
         total = len(self.tasks)
@@ -120,6 +127,8 @@ class RuntimeMetrics:
             "yield_count": self.yield_count,
             "headon_reroute_count": self.headon_reroute_count,
             "costmap_wait_count": self.costmap_wait_count,
+            "dwell_count": self.dwell_count,
+            "dwell_time_sec": self.dwell_time_sec,
         }
 
 
@@ -135,6 +144,7 @@ class Runtime:
         clock: RuntimeClock | None = None,
         adapters: dict[str, EmbodimentAdapter] | None = None,
         controller: SimpleLocalController | None = None,
+        holonomic_controller: HolonomicLocalController | None = None,
         task_queue: TaskQueue | None = None,
         dispatcher: Dispatcher | None = None,
         reservations: ReservationManager | None = None,
@@ -150,6 +160,7 @@ class Runtime:
         self.clock = clock or RuntimeClock()
         self.adapters: dict[str, EmbodimentAdapter] = adapters or {}
         self.controller = controller or SimpleLocalController()
+        self.holonomic_controller = holonomic_controller or HolonomicLocalController()
         self.lifecycle_state = LifecycleState.ACTIVE
         self.metrics = RuntimeMetrics()
         self._motion_started: set[str] = set()
@@ -186,6 +197,7 @@ class Runtime:
         self._headon_rerouted_pairs: set[frozenset[str]] = set()
         self._costmap_reservations = CostmapReservationStore()
         self._costmap_waiting: set[str] = set()
+        self._dwell_until_sec: dict[str, float] = {}
 
     @classmethod
     def from_scenario(
@@ -206,6 +218,10 @@ class Runtime:
                 spawn = spec.spawn or (0.0, 0.0, 0.0)
                 if spec.embodiment == "humanoid":
                     adapters[spec.agent_id] = HumanoidIntentAdapter(
+                        agent_id=spec.agent_id, x=spawn[0], y=spawn[1], yaw=spawn[2]
+                    )
+                elif spec.embodiment == "holonomic":
+                    adapters[spec.agent_id] = HolonomicKinematics(
                         agent_id=spec.agent_id, x=spawn[0], y=spawn[1], yaw=spawn[2]
                     )
                 else:
@@ -289,6 +305,7 @@ class Runtime:
             agent_id=task.agent_id,
             goal=task.goal,
             assigned_at_sec=ts,
+            dwell_sec=task.dwell_sec,
         )
         self.events.write(
             ts=ts,
@@ -763,7 +780,42 @@ class Runtime:
             if target is None:
                 target = goal
 
-            if self._reached_goal(previous_pose, goal):
+            if self._reached_goal(state.agent_id, previous_pose, goal):
+                record = self.metrics.tasks.get(task_id)
+                dwell_sec = record.dwell_sec if record is not None else 0.0
+                if dwell_sec > 0.0:
+                    resume_at = self._dwell_until_sec.get(state.agent_id)
+                    if resume_at is None:
+                        self._dwell_until_sec[state.agent_id] = sim_time + dwell_sec
+                        self.metrics.dwell_count += 1
+                        self.events.write(
+                            ts=sim_time,
+                            episode_id=episode_id,
+                            agent_id=state.agent_id,
+                            event="DWELL_STARTED",
+                            task_id=task_id,
+                            data={"dwell_sec": dwell_sec},
+                        )
+                        adapter.stop("dwell")
+                        state.linear_velocity_x = 0.0
+                        state.angular_velocity_z = 0.0
+                        continue
+                    if sim_time < resume_at:
+                        adapter.stop("dwell")
+                        state.linear_velocity_x = 0.0
+                        state.angular_velocity_z = 0.0
+                        continue
+                    self._dwell_until_sec.pop(state.agent_id, None)
+                    self.metrics.dwell_time_sec += dwell_sec
+                    self.events.write(
+                        ts=sim_time,
+                        episode_id=episode_id,
+                        agent_id=state.agent_id,
+                        event="DWELL_FINISHED",
+                        task_id=task_id,
+                        data={"dwell_sec": dwell_sec},
+                    )
+
                 if record is not None:
                     record.finished_at_sec = sim_time
                     record.status = TaskStatus.SUCCEEDED
@@ -803,7 +855,8 @@ class Runtime:
                 continue
 
             spec = self.registry.get_spec(state.agent_id)
-            command = self.controller.compute(
+            motion_controller = self._motion_controller_for(spec.embodiment)
+            command = motion_controller.compute(
                 state.agent_id,
                 previous_pose,
                 target,
@@ -817,6 +870,7 @@ class Runtime:
                 new_pose = adapter.read_pose()
                 state.pose = new_pose
                 state.linear_velocity_x = decision.command.linear_x
+                state.linear_velocity_y = decision.command.linear_y
                 state.angular_velocity_z = decision.command.angular_z
                 self.metrics.command_accept_count += 1
                 if record is not None:
@@ -834,6 +888,7 @@ class Runtime:
                         task_id=task_id,
                         data={
                             "linear_x": decision.command.linear_x,
+                            "linear_y": decision.command.linear_y,
                             "angular_z": decision.command.angular_z,
                             "authority": decision.command.authority.value,
                             "source": decision.command.source,
@@ -1142,12 +1197,19 @@ class Runtime:
         if cells != set(self._costmap_reservations.cells_for(agent_id)):
             self._costmap_reservations.set_cells(agent_id, cells)
 
+    def _motion_controller_for(self, embodiment: str) -> SimpleLocalController | HolonomicLocalController:
+        if embodiment == "holonomic":
+            return self.holonomic_controller
+        return self.controller
+
     def _reached_goal(
         self,
+        agent_id: str,
         pose: tuple[float, float, float],
         goal: tuple[float, float, float],
     ) -> bool:
-        return self.controller.at_goal(pose, goal)
+        spec = self.registry.get_spec(agent_id)
+        return self._motion_controller_for(spec.embodiment).at_goal(pose, goal)
 
     def _update_stuck_detection(
         self,
@@ -1261,6 +1323,7 @@ class Runtime:
         self._recovery_retries.pop(agent_id, None)
         self._costmap_reservations.release(agent_id)
         self._costmap_waiting.discard(agent_id)
+        self._dwell_until_sec.pop(agent_id, None)
 
     def _poll_safety_signals(self, *, sim_time: float, episode_id: str) -> None:
         """Detect rising-edge safety conditions from adapters.
@@ -1789,8 +1852,7 @@ class Runtime:
 def ensure_run_layout(run_dir: Path, *, record_rosbag: bool) -> None:
     run_dir.mkdir(parents=True, exist_ok=False)
     (run_dir / "traces").mkdir()
-    if record_rosbag:
-        (run_dir / "rosbag").mkdir()
+    del record_rosbag  # rosbag/ is created by the recorder or skip marker
 
 
 __all__ = [

@@ -26,6 +26,7 @@ def test_run_writes_replay_artifacts(tmp_path: Path) -> None:
     assert (run_dir / "metrics.json").exists()
     assert (run_dir / "report.md").exists()
     assert (run_dir / "rosbag").is_dir()
+    assert (run_dir / "rosbag" / "RECORDING_SKIPPED").is_file()
 
     metrics = json.loads((run_dir / "metrics.json").read_text(encoding="utf-8"))
     assert metrics["scenario_id"] == "smoke"

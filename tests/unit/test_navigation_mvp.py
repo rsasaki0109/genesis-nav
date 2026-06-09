@@ -108,6 +108,74 @@ def test_build_planner_reads_top_level_block() -> None:
     assert isinstance(planner, GridAStarPlanner)
 
 
+def test_inflate_cells_expands_blocked_footprint() -> None:
+    raw = {
+        "resolution": 1.0,
+        "origin": [0.0, 0.0],
+        "cells": [
+            [0, 0, 0, 0, 0, 0, 0, 0, 0],
+            [0, 0, 1, 0, 1, 0, 0, 0, 0],
+            [0, 0, 0, 0, 0, 0, 0, 0, 0],
+            [0, 0, 0, 0, 0, 0, 0, 0, 0],
+            [0, 0, 0, 0, 0, 0, 0, 0, 0],
+        ],
+    }
+    open_grid = OccupancyGrid.from_mapping(raw)
+    inflated = OccupancyGrid.from_mapping({**raw, "inflate_cells": 1})
+
+    assert open_grid.is_blocked(3, 1) is False
+    assert inflated.is_blocked(3, 1) is True
+
+    start = (0.5, 1.5, 0.0)
+    goal = (8.5, 1.5, 0.0)
+    inflated_path = GridAStarPlanner(inflated).plan(start, goal)
+    assert inflated_path[-1] == goal
+    assert any(y >= 2.5 for _, y, _ in inflated_path[1:-1])
+
+
+def test_narrow_passage_scenario_reaches_goal(tmp_path: Path) -> None:
+    scenario = load_scenario(
+        Path("benchmarks/nav_basic/narrow_passage.yaml")
+    )
+    log_path = tmp_path / "events.jsonl"
+
+    with JsonlEventWriter(log_path) as events:
+        runtime = Runtime.from_scenario(scenario, events)
+        for task in scenario.tasks:
+            runtime.assign_task(task, ts=0.0, episode_id="ep")
+        metrics = runtime.run_until_idle(episode_id="ep", max_sim_seconds=60.0)
+
+    assert metrics.summary()["success_rate"] == 1.0
+    assert metrics.summary()["task_succeeded_count"] == 1
+
+
+def test_with_blocked_inflates_delta_when_configured() -> None:
+    grid = OccupancyGrid.from_mapping(
+        {
+            "resolution": 1.0,
+            "origin": [0.0, 0.0],
+            "inflate_cells": 1,
+            "cells": [[0, 0, 0], [0, 0, 0], [0, 0, 0]],
+        }
+    )
+    updated = grid.with_blocked([(1, 1)])
+    assert updated.is_blocked(1, 1) is True
+    assert updated.is_blocked(1, 0) is True
+    assert updated.is_blocked(0, 1) is True
+
+
+def test_from_mapping_rejects_negative_inflate_cells() -> None:
+    with pytest.raises(ValueError, match="inflate_cells"):
+        OccupancyGrid.from_mapping(
+            {
+                "resolution": 1.0,
+                "origin": [0.0, 0.0],
+                "inflate_cells": -1,
+                "cells": [[0]],
+            }
+        )
+
+
 # ------------------------------------------------------------------ transitions
 
 

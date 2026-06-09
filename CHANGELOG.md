@@ -8,6 +8,40 @@ practice independently.
 
 ## [Unreleased]
 
+## [0.2.2] — 2026-06-10
+
+Post-0.2.1 polish: observability, rosbag tooling, grid footprint, dock dwell,
+holonomic adapter, and contributor docs refresh. 250 unit tests (249 pass + 1
+skip when Genesis is absent).
+
+### Added
+
+- **Holonomic adapter** — `type: holonomic` selects `HolonomicKinematics` +
+  `HolonomicLocalController` (`vx`, `vy`, `wz` body-frame strafe). Example
+  `examples/scenarios/holonomic_smoke.yaml`.
+- **Grid obstacle inflation** — `occupancy_grid.inflate_cells` dilates blocked
+  cells before A*; bench `benchmarks/nav_basic/narrow_passage.yaml`.
+- **Dock dwell + return** — task `dwell_sec` holds at goal before
+  `TASK_SUCCEEDED`; events `DWELL_STARTED` / `DWELL_FINISHED`; metric
+  `dwell_count`; example `examples/scenarios/charging_dock.yaml` + bench guard.
+- **Rosbag recording** — `gnav run --ros --record` writes bridged topics to
+  `run_dir/rosbag/` via `genesis_nav/ros/bag_writer.py`; `--record` without
+  `--ros` leaves `RECORDING_SKIPPED`.
+- **Rosbag replay export** — `gnav replay <run_dir> --to-rosbag` re-simulates
+  through the ROS bridge into `run_dir/rosbag/` (exit 3 without rosbag2_py).
+- **`gnav doctor --json`** — machine-readable dependency checks for CI /
+  bug reports (`genesis_nav/cli/doctor.py`).
+- **`BENCHMARK_REPORT` event** — `gnav bench --run` appends pass/fail + suite
+  report path to each run's `events.jsonl` after `SCENARIO_FINISHED`.
+- **Wilson `success_rate_ci`** — 95% confidence interval in `metrics.json`
+  when more than one task completed.
+
+### Changed
+
+- **README** — shorter quickstart; rosbag record + replay export examples.
+- **`docs/good_first_issues.md`** — original ten tasks marked closed; new
+  v0.3 follow-ups listed.
+
 ## [0.2.1] — 2026-06-10
 
 ### Added
@@ -285,7 +319,8 @@ adapters are deferred to v0.2 (see issue #10).
 - No Nav2 plugin bridge (intentional — see ADR in `docs/decisions.md`).
 - No real-robot adapters yet; the path is via the ROS 2 contract.
 
-[Unreleased]: https://github.com/rsasaki0109/genesis-nav/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/rsasaki0109/genesis-nav/compare/v0.2.2...HEAD
+[0.2.2]: https://github.com/rsasaki0109/genesis-nav/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/rsasaki0109/genesis-nav/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/rsasaki0109/genesis-nav/compare/v0.2.0a1...v0.2.0
 [0.2.0a1]: https://github.com/rsasaki0109/genesis-nav/compare/v0.2.0a0...v0.2.0a1

@@ -1,0 +1,46 @@
+scenario_id: bench_nav_basic_charging_dock
+seed: 42
+world: examples/worlds/warehouse_small.py
+max_sim_seconds: 90
+# Regression guard: dock at a pose, dwell, return to start. Exercises pose
+# tolerance plus post-goal dwell before the second task is dispatched.
+agents:
+  - id: robot_001
+    type: diff_drive
+    namespace: /robot_001
+    spawn: [0.0, 0.0, 0.0]
+    frames:
+      map: map
+      odom: robot_001/odom
+      base: robot_001/base_link
+    capabilities:
+      - navigate_2d
+      - stop
+      - report_pose
+    authority:
+      mode: autonomous
+      command_ttl_ms: 200
+tasks:
+  - id: dock_001
+    type: navigate_to_pose
+    agent: robot_001
+    goal: [4.0, 0.0, 0.0]
+    dwell_sec: 2.0
+  - id: return_001
+    type: navigate_to_pose
+    agent: robot_001
+    goal: [0.0, 0.0, 0.0]
+metrics:
+  - success_rate
+  - time_to_goal
+record:
+  rosbag: false
+  events: true
+benchmark:
+  expected:
+    success_rate_min: 1.0
+    task_succeeded_count_min: 2
+    task_failed_count_max: 0
+    dwell_count_min: 1
+    time_to_goal_mean_max_sec: 60.0
+    command_rejection_count_max: 0

@@ -183,3 +183,44 @@ def test_bridge_forwards_cmd_vel_through_command_gate(tmp_path: Path) -> None:
             bridge.shutdown()
     finally:
         events.__exit__(None, None, None)
+
+
+def test_bridge_rosbag_recorder_writes_metadata(tmp_path: Path) -> None:
+    pytest.importorskip("rosbag2_py")
+    from genesis_nav.ros.bag_writer import RosbagRecorder, load_rosbag_profile
+
+    scenario, runtime, events = _make_runtime(tmp_path)
+    bag_dir = tmp_path / "rosbag"
+    recorder = RosbagRecorder(
+        bag_dir,
+        load_rosbag_profile("configs/rosbag/minimal.yaml"),
+        [spec.namespace for spec in scenario.agents],
+    )
+    try:
+        bridge = RosBridge(
+            runtime.registry,
+            runtime.clock,
+            events,
+            config=BridgeConfig(qos_path="configs/qos/default.yaml"),
+            teleop_command_handler=_ros_teleop_handler(runtime),
+            episode_id="episode-bag-test",
+        )
+        try:
+            bridge.set_rosbag_recorder(recorder)
+            bridge.publish_clock(0.0)
+            bridge.publish_states(0.0)
+            bridge.write(
+                ts=0.0,
+                episode_id="episode-bag-test",
+                event="SCENARIO_STARTED",
+                data={"scenario_id": scenario.scenario_id},
+            )
+        finally:
+            bridge.shutdown()
+    finally:
+        recorder.close()
+        events.__exit__(None, None, None)
+
+    assert (bag_dir / "metadata.yaml").is_file()
+    assert any(path.suffix == ".db3" for path in bag_dir.iterdir())
+

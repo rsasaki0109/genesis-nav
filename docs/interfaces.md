@@ -136,8 +136,13 @@ class EmbodimentAdapter(Protocol):
 
 `Runtime.from_scenario(scenario, events, adapter_factory=...)` accepts a
 factory `Callable[[AgentSpec], EmbodimentAdapter]` so backends can be plugged
-without subclassing Runtime. The default factory returns
-`DiffDriveKinematics`. The Genesis backend supplies `GenesisBackend.spawn`.
+without subclassing Runtime. The default factory selects by agent `type`:
+
+- `diff_drive` (default) → `DiffDriveKinematics` + `SimpleLocalController`
+- `holonomic` → `HolonomicKinematics` + `HolonomicLocalController` (`vx`, `vy`, `wz`)
+- `humanoid` → `HumanoidIntentAdapter` (planar intent shell)
+
+The Genesis backend supplies `GenesisBackend.spawn`.
 
 Selected by `gnav run --backend {fallback | genesis | ros2_robot}`.
 
@@ -361,12 +366,32 @@ Known event names:
 - `AGENT_YIELDED`
 - `AGENT_STUCK`
 - `STUCK_RECOVERED`
+- `DWELL_STARTED`
+- `DWELL_FINISHED`
 - `OBSTACLE_CHANGED`
 - `REPLAN_TRIGGERED`
 - `DIAGNOSTICS`
 - `SIM_RESET`
 - `SCENARIO_STARTED`
 - `SCENARIO_FINISHED`
+- `BENCHMARK_REPORT`
+
+`BENCHMARK_REPORT` is emitted by `gnav bench --run` after each scenario
+finishes. It trails `SCENARIO_FINISHED` in `events.jsonl` and carries the
+suite report path plus pass/fail:
+
+```json
+{
+  "benchmark_suite": "nav_basic",
+  "passed": true,
+  "failures": [],
+  "report_path": "benchmarks/_runs/nav_basic_report.json"
+}
+```
+
+Replay validation treats post-scenario events (`BENCHMARK_REPORT`) as
+optional trailing records; the last *scenario* event must still be
+`SCENARIO_FINISHED`.
 
 ### Behavior State Machine
 
@@ -431,7 +456,7 @@ world: path-or-id
 max_sim_seconds: number  # optional, default 60
 agents:
   - id: string
-    type: string
+    type: string                 # diff_drive | holonomic | humanoid | ...
     spawn: [x, y, yaw]
 tasks:
   - id: string
@@ -439,6 +464,7 @@ tasks:
     agent: string             # optional; dispatcher matches if omitted
     priority: integer         # optional; higher dispatches first
     goal: [x, y, yaw]
+    dwell_sec: 0.0            # optional; hold at goal before TASK_SUCCEEDED
     constraints:              # optional dispatcher hints
       agent_selector:
         capabilities: [navigate_2d]
@@ -450,6 +476,7 @@ resources:                    # optional; lease-managed shared zones
 occupancy_grid:               # optional; enables GridAStarPlanner
   resolution: 0.5             # metres per cell
   origin: [-5.0, -5.0]        # world coord of the lower-left corner
+  inflate_cells: 0            # optional; dilate blocked cells by robot footprint
   cells:                      # row 0 is the bottom row; 1 = blocked
     - [0, 0, 1, 0]
     - [0, 0, 1, 0]
@@ -517,7 +544,7 @@ method list, safety contract, and event semantics are documented in
 Minimum runtime fields:
 
 - `agent_id`
-- `embodiment_type` (`diff_drive` | `humanoid` | backend-defined)
+- `embodiment_type` (`diff_drive` | `holonomic` | `humanoid` | backend-defined)
 - `namespace`
 - `frames`
 - `capabilities`
@@ -617,6 +644,26 @@ Emits `COSTMAP_RESERVED` / `COSTMAP_RESERVATION_WAIT`; bumps
 forward hold). Named `resources` leases remain independent. Disabled by
 default. `benchmarks/multi_agent/costmap_corridor.yaml` guards it.
 
+## CLI: `gnav doctor`
+
+`gnav doctor` reports optional dependency availability for local development.
+Checks (in order): `python`, `yaml`, `rclpy`, `genesis_nav_msgs`, `genesis`.
+Each dependency is `ok` or `missing`; missing entries include an install hint
+on stderr-style text output.
+
+With `--json`, prints the same checks as:
+
+```json
+{
+  "checks": [
+    {"name": "python", "status": "ok"},
+    {"name": "rclpy", "status": "missing", "hint": "install ROS 2 ..."}
+  ]
+}
+```
+
+Exit code is always `0` (informational only).
+
 ## Run Directory Layout
 
 Every `gnav run` writes a self-contained directory under `--output-dir`
@@ -632,23 +679,33 @@ Every `gnav run` writes a self-contained directory under `--output-dir`
   (`fast` | `realtime`), `ros_enabled`, `record_rosbag`.
 - `events.jsonl` — one JSON record per line, each carrying `ts`,
   `episode_id`, `event`, optional `agent_id`/`task_id`/`data`. The first
-  record is always `SCENARIO_STARTED` and the last `SCENARIO_FINISHED`.
+  record is always `SCENARIO_STARTED` and the last scenario lifecycle event is
+  `SCENARIO_FINISHED`. A trailing `BENCHMARK_REPORT` may follow when the run
+  was exercised via `gnav bench --run`.
 - `metrics.json` — machine-readable summary; see the Metrics Schema
   section below.
 - `report.md` — human-readable rendering of the metrics.
 - `traces/` — reserved for backend-specific traces.
-- `rosbag/` — present only when `--record` or the scenario opts in.
+- `rosbag/` — present when `--record` is set. With `--ros`, contains a rosbag2
+  sqlite3 bag of bridged topics; without `--ros`, contains
+  `RECORDING_SKIPPED` explaining that the ROS bridge is required.
+- `rosbag_profile.yaml` — copied from `--rosbag-profile` when `--record` is set.
 - `qos_profile.yaml` — copied from `--qos-profile` when `--ros` is set.
 
 `gnav replay <run_dir>` validates this layout. It requires every file in
 the list above, parses `events.jsonl` line by line, refuses runs that
-start without `SCENARIO_STARTED` or end without `SCENARIO_FINISHED`, and
+start without `SCENARIO_STARTED` or whose last scenario lifecycle event is not
+`SCENARIO_FINISHED`, and
 checks that `metrics.json` contains at least `scenario_id`, `seed`,
 `success_rate`, and `sim_steps`. With `--print-events` it streams the
 task lifecycle events (`TASK_ASSIGNED` → `TASK_STARTED` →
 `TASK_SUCCEEDED`/`TASK_FAILED`) plus safety events (`SAFETY_STOP`,
-`FALL_DETECTED`, `COLLISION`, `AGENT_STUCK`) in order. Exit codes:
-`0` on success, `2` on validation failure.
+`FALL_DETECTED`, `COLLISION`, `AGENT_STUCK`) in order. With `--to-rosbag`
+it re-simulates the stored scenario through the ROS bridge and writes
+`run_dir/rosbag/` (requires rclpy, rosbag2_py, and genesis_nav_msgs),
+replacing a prior `RECORDING_SKIPPED` marker when present. Exit codes:
+`0` on success, `2` on validation failure, `3` when ROS bag tooling is
+missing, `4` when the recorded backend (e.g. genesis) is unavailable.
 
 ## Benchmark Report Schema
 
@@ -687,10 +744,14 @@ reference integration suite.
 
 - `scenario_id`, `seed`, `agent_count`, `task_count`
 - `success_rate`, `task_succeeded_count`, `task_failed_count`
+- `success_rate_ci` — Wilson 95% interval `{low, high, confidence}` when
+  more than one task completed (`task_succeeded_count + task_failed_count > 1`);
+  omitted for single-task runs
 - `time_to_goal_mean_sec`, `path_length_mean_m`
 - `command_accept_count`, `command_rejection_count`
 - `task_dispatched_count`, `task_pending_peak`
 - `reservation_granted_count`, `reservation_conflict_count`,
   `reservation_released_count`
 - `collision_count`, `near_miss_count`, `emergency_stop_count`
+- `dwell_count`, `dwell_time_sec` (post-goal hold time at dock/charge poses)
 - `sim_steps`, `sim_steps_per_sec`, `real_time_factor`
