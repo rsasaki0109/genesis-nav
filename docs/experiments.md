@@ -60,6 +60,8 @@ gnav run examples/scenarios/smoke.yaml --fast --ros
 | 2026-06-10 | Genesis URDF + furnished warehouse (`test_genesis_urdf_adapter.py`) | pending | `examples/robots/diff_drive.urdf`, `GENESIS_NAV_SPAWN_URDF=1`, wheel DOF velocity mapping in adapter; warehouse walls/shelves; `.github/workflows/genesis.yaml` | Closes Genesis ADR follow-ups (URDF drivetrain, furnished world, GPU CI lane). Kinematic box remains default. |
 | 2026-06-10 | v0.2.0 release | pending | 207 unit tests pass; multi_agent 4/4; docs/roadmap_v02.md + architecture Mermaid | Formal v0.2 tag after 0.2.0a1 + Genesis + head-on slices. |
 
+| 2026-06-10 | costmap-aware reservation (unit + e2e, `test_costmap_reservation.py`) | pending | `runtime.navigation.costmap_reservation: true` + grid planner; forward path cells reserved per agent; others enter `RESERVING`; rolling release as holder moves; `benchmarks/multi_agent/costmap_corridor.yaml` passes (sr=1.0, costmap_wait≥1); multi_agent 5/5; 214 unit tests pass (+7) | Closes the costmap reservation follow-up from proximity ADRs. Smarter priority remains open. |
+
 ## Benchmark History
 
 Benchmark history starts once v0.1 scenario execution is wired to Genesis.

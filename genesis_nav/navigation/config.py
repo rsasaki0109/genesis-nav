@@ -36,6 +36,9 @@ class NavigationConfig:
     # `cmd_vel` still traverses `CommandGate` as an ``AUTONOMY`` command before
     # it reaches the actuator (see the 2026-05-29 Nav2 ADR).
     controller: str = "local"
+    # When true (and the planner is a grid), agents reserve cells along their
+    # remaining path; other agents treat those cells as blocked while planning.
+    costmap_reservation: bool = False
 
     PLANNER_CHOICES = ("auto", "grid", "straight", "nav2")
     CONTROLLER_CHOICES = ("local", "nav2")
@@ -84,6 +87,7 @@ class NavigationConfig:
             ),
             planner=planner,
             controller=controller,
+            costmap_reservation=bool(block.get("costmap_reservation", cls.costmap_reservation)),
         )
 
 

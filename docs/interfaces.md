@@ -461,6 +461,7 @@ runtime:                      # optional; tunes the navigation behavior loop
     stuck_min_progress_m: 0.05
     recovery_wait_sec: 0.5
     max_recovery_retries: 3
+    costmap_reservation: false  # grid planner only; forward path cell holds
 metrics:
   - success_rate
 record:
@@ -593,8 +594,8 @@ bumping `yield_count`. An idle agent parked at its goal is never yielded to.
 This is a reactive stop-and-wait scheme: it resolves crossing conflicts (one
 agent waits, the other passes, then it proceeds) but not head-on conflicts on a
 shared line — those need a lateral reroute (below). Smarter priority (goal
-distance, reciprocal velocity obstacles) and costmap-aware reservation remain
-follow-ups. `benchmarks/multi_agent/yield_avoidance.yaml` guards it: the same
+distance, reciprocal velocity obstacles) remain follow-ups.
+`benchmarks/multi_agent/yield_avoidance.yaml` guards it: the same
 crossing that collides under detection-only reaches `collision = near_miss = 0`
 with response on, both agents still succeeding.
 
@@ -606,6 +607,15 @@ from yield — scenarios can enable either or both. Evaluated before yield each
 tick because stop-and-wait fails on a shared corridor (the stopped agent
 blocks the higher-priority path). `benchmarks/multi_agent/headon_avoidance.yaml`
 guards it.
+
+**Costmap-aware reservation.** When `runtime.navigation.costmap_reservation:
+true` (grid planner only), an executing agent reserves the grid cells along its
+*remaining* forward path. Other agents treat those cells as blocked during
+`GridAStarPlanner` planning and enter `RESERVING` until the corridor clears.
+Emits `COSTMAP_RESERVED` / `COSTMAP_RESERVATION_WAIT`; bumps
+`costmap_wait_count`. Reservations shrink as the holder moves (rolling
+forward hold). Named `resources` leases remain independent. Disabled by
+default. `benchmarks/multi_agent/costmap_corridor.yaml` guards it.
 
 ## Run Directory Layout
 

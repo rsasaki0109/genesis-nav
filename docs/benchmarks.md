@@ -46,6 +46,7 @@ share state; one scenario's failure does not abort the suite.
    | `yield_count_min` | `yield_count` | `actual >= value` |
    | `yield_count_max` | `yield_count` | `actual <= value` |
    | `headon_reroute_count_min` | `headon_reroute_count` | `actual >= value` |
+   | `costmap_wait_count_min` | `costmap_wait_count` | `actual >= value` |
    | `emergency_stop_count_max` | `emergency_stop_count` | `actual <= value` |
    | `reservation_conflict_count_max` | `reservation_conflict_count` | `actual <= value` |
    | `time_to_goal_mean_max_sec` | `time_to_goal_mean_sec` | `actual <= value` |
