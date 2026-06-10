@@ -1,0 +1,13 @@
+type: holonomic
+embodiment: holonomic
+frames:
+  map: map
+  odom: robot/odom
+  base: robot/base_link
+capabilities:
+  - navigate_2d
+  - stop
+  - report_pose
+authority:
+  mode: autonomous
+  command_ttl_ms: 200

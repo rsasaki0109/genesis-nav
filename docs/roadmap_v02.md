@@ -20,15 +20,16 @@ One-page summary of what v0.1 shipped, what v0.2 adds, and what remains open.
 | Teleop | `submit_teleop_command`, bridge unified onto runtime hold window |
 | Diagnostics | Per-agent health read-model + periodic events + ROS `DiagnosticArray` |
 | Dynamic obstacles | Grid deltas, replan on blocked path |
-| Spatial safety | Detect → near-miss → yield → diagnostics; **head-on lateral reroute** |
+| Spatial safety | Detect → near-miss → yield → diagnostics; **head-on lateral reroute**; **costmap reservation** |
 | Genesis | Real Genesis 1.0 API, kinematic diff-drive, URDF wheel-joint path, furnished warehouse world |
+| Observability (0.2.2) | Rosbag record/export, `doctor --json`, `BENCHMARK_REPORT`, Wilson `success_rate_ci` |
+| Navigation (0.2.2) | Grid `inflate_cells`, task `dwell_sec`, `type: holonomic` adapter |
 
 ## Still open (v0.3+ direction)
 
 - Smarter priority (goal distance, RVO)
 - Nav2 costmap layers / recovery behaviors
 - Non-loopback real-hardware transports
-- `gnav replay --to-rosbag` exporter
 - Multi-host / distributed runtime, Open-RMF adapter
 - Phase 4 embodied-AI tools (semantic map, VLM query, task planning)
 

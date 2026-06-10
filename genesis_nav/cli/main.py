@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import importlib.util
 import json
 import shutil
 import sys
@@ -14,14 +13,8 @@ from typing import Any
 import yaml
 
 from genesis_nav import __version__
-from genesis_nav.benchmarks.report import (
-    BenchmarkExpectation,
-    BenchmarkScenarioResult,
-    BenchmarkSuiteReport,
-    discover_scenarios,
-    is_integration_scenario,
-    now_iso,
-)
+from genesis_nav.cli.doctor import run_doctor
+from genesis_nav.benchmarks.runner import run_benchmark_suite, terminal_scenario_record
 from genesis_nav.benchmarks.scenario import Scenario, load_scenario
 from genesis_nav.core.runtime import Runtime, ensure_run_layout
 from genesis_nav.navigation.config import NavigationConfig
@@ -31,7 +24,7 @@ from genesis_nav.observability.events import (
     JsonlEventWriter,
     RingBufferEventSink,
 )
-from genesis_nav.observability.metrics import MetricsSnapshot
+from genesis_nav.observability.metrics import MetricsSnapshot, wilson_success_rate_ci
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -48,7 +41,11 @@ def build_parser() -> argparse.ArgumentParser:
     run = subparsers.add_parser("run", help="run a reproducible scenario")
     run.add_argument("scenario", type=Path)
     run.add_argument("--fast", action="store_true", help="run without wall-time synchronization")
-    run.add_argument("--record", action="store_true", help="create rosbag artifact directory")
+    run.add_argument(
+        "--record",
+        action="store_true",
+        help="record bridged ROS 2 topics to run_dir/rosbag (requires --ros)",
+    )
     run.add_argument("--output-dir", type=Path, default=Path("runs"))
     run.add_argument(
         "--ros",
@@ -70,6 +67,12 @@ def build_parser() -> argparse.ArgumentParser:
         "'ros2_robot' drives a real robot over /<agent>/cmd_vel + /<agent>/odom "
         "(requires a sourced ROS 2 environment)",
     )
+    run.add_argument(
+        "--rosbag-profile",
+        type=Path,
+        default=Path("configs/rosbag/minimal.yaml"),
+        help="topic list for --record (default: configs/rosbag/minimal.yaml)",
+    )
     run.set_defaults(func=run_command)
 
     replay = subparsers.add_parser("replay", help="validate a run artifact for replay")
@@ -78,6 +81,18 @@ def build_parser() -> argparse.ArgumentParser:
         "--print-events",
         action="store_true",
         help="stream task and safety events from events.jsonl in order",
+    )
+    replay.add_argument(
+        "--to-rosbag",
+        action="store_true",
+        help="re-run the scenario with the ROS bridge and write run_dir/rosbag/",
+    )
+    replay.add_argument(
+        "--rosbag-profile",
+        type=Path,
+        default=None,
+        help="topic profile for --to-rosbag (default: run_dir/rosbag_profile.yaml "
+        "or configs/rosbag/minimal.yaml)",
     )
     replay.set_defaults(func=replay_command)
 
@@ -115,6 +130,11 @@ def build_parser() -> argparse.ArgumentParser:
     bench.set_defaults(func=bench_command)
 
     doctor = subparsers.add_parser("doctor", help="check local runtime dependencies")
+    doctor.add_argument(
+        "--json",
+        action="store_true",
+        help="print checks as machine-readable JSON",
+    )
     doctor.set_defaults(func=doctor_command)
 
     return parser
@@ -149,8 +169,13 @@ def run_command(args: argparse.Namespace) -> int:
         qos_source = Path(args.qos_profile)
         if qos_source.exists():
             shutil.copyfile(qos_source, run_dir / "qos_profile.yaml")
+    if record_rosbag:
+        rosbag_source = Path(args.rosbag_profile)
+        if rosbag_source.exists():
+            shutil.copyfile(rosbag_source, run_dir / "rosbag_profile.yaml")
 
     bridge = None
+    bag_recorder = None
     genesis_backend = None
     robot_backend = None
     if args.backend == "genesis":
@@ -219,6 +244,22 @@ def run_command(args: argparse.Namespace) -> int:
             except ImportError as exc:
                 print(f"--ros requires rclpy and genesis_nav_msgs: {exc}", file=sys.stderr)
                 return 3
+            if record_rosbag:
+                from genesis_nav.ros.bag_writer import (
+                    RosbagNotAvailableError,
+                    RosbagRecorder,
+                    load_rosbag_profile,
+                )
+
+                try:
+                    bag_recorder = RosbagRecorder(
+                        run_dir / "rosbag",
+                        load_rosbag_profile(args.rosbag_profile),
+                        [spec.namespace for spec in scenario.agents],
+                    )
+                except RosbagNotAvailableError as exc:
+                    print(f"--record unavailable: {exc}", file=sys.stderr)
+                    return 3
             def _ros_teleop(agent_id, linear_x, linear_y, angular_z):
                 return runtime.submit_teleop_command(
                     agent_id,
@@ -241,6 +282,8 @@ def run_command(args: argparse.Namespace) -> int:
             event_sink = FanoutEventSink([jsonl_sink, event_buffer, bridge])
             runtime.events = event_sink
             bridge.set_diagnostics_provider(runtime.diagnostics)
+            if bag_recorder is not None:
+                bridge.set_rosbag_recorder(bag_recorder)
 
         try:
             event_sink.write(
@@ -314,19 +357,33 @@ def run_command(args: argparse.Namespace) -> int:
                     extra={"summary": summary},
                 )
         finally:
+            if bag_recorder is not None:
+                bag_recorder.close()
             if bridge is not None:
                 bridge.shutdown()
             if robot_backend is not None:
                 robot_backend.shutdown()
 
+    if record_rosbag and bag_recorder is None:
+        from genesis_nav.ros.bag_writer import write_recording_skipped_marker
+
+        write_recording_skipped_marker(
+            run_dir,
+            reason="rosbag recording requires `gnav run --ros` (rclpy + genesis_nav_msgs)",
+        )
+
+    task_succeeded_count = int(summary["task_succeeded_count"])
+    task_failed_count = int(summary["task_failed_count"])
+    task_total = task_succeeded_count + task_failed_count
     metrics = MetricsSnapshot(
         scenario_id=scenario.scenario_id,
         seed=scenario.seed,
         agent_count=len(scenario.agents),
         task_count=len(scenario.tasks),
         success_rate=float(summary["success_rate"]),
-        task_succeeded_count=int(summary["task_succeeded_count"]),
-        task_failed_count=int(summary["task_failed_count"]),
+        task_succeeded_count=task_succeeded_count,
+        task_failed_count=task_failed_count,
+        success_rate_ci=wilson_success_rate_ci(task_succeeded_count, task_total),
         command_accept_count=int(summary["command_accept_count"]),
         command_rejection_count=int(summary["command_rejection_count"]),
         time_to_goal_mean_sec=float(summary["time_to_goal_mean_sec"]),
@@ -345,6 +402,8 @@ def run_command(args: argparse.Namespace) -> int:
         yield_count=int(summary["yield_count"]),
         headon_reroute_count=int(summary["headon_reroute_count"]),
         costmap_wait_count=int(summary["costmap_wait_count"]),
+        dwell_count=int(summary["dwell_count"]),
+        dwell_time_sec=float(summary["dwell_time_sec"]),
     )
     write_json(run_dir / "metrics.json", metrics.to_dict())
     write_report(run_dir / "report.md", scenario, metrics)
@@ -383,6 +442,8 @@ REPLAY_PLAYBACK_EVENTS = frozenset(
         "NEAR_MISS",
         "AGENT_YIELDED",
         "AGENT_STUCK",
+        "DWELL_STARTED",
+        "DWELL_FINISHED",
     }
 )
 
@@ -407,8 +468,9 @@ def replay_command(args: argparse.Namespace) -> int:
     if records[0]["event"] != "SCENARIO_STARTED":
         print("first event must be SCENARIO_STARTED", file=sys.stderr)
         return 2
-    if records[-1]["event"] != "SCENARIO_FINISHED":
-        print("last event must be SCENARIO_FINISHED", file=sys.stderr)
+    terminal = terminal_scenario_record(records)
+    if terminal is None or terminal["event"] != "SCENARIO_FINISHED":
+        print("last scenario event must be SCENARIO_FINISHED", file=sys.stderr)
         return 2
 
     try:
@@ -433,6 +495,26 @@ def replay_command(args: argparse.Namespace) -> int:
                 f"agent={record.get('agent_id', '') or '-':<14}  "
                 f"task={record.get('task_id', '') or '-'}"
             )
+
+    if args.to_rosbag:
+        from genesis_nav.ros.bag_writer import RosbagNotAvailableError
+        from genesis_nav.ros.replay_export import export_run_to_rosbag
+
+        try:
+            bag_dir = export_run_to_rosbag(
+                run_dir,
+                rosbag_profile=args.rosbag_profile,
+            )
+        except RosbagNotAvailableError as exc:
+            print(f"--to-rosbag unavailable: {exc}", file=sys.stderr)
+            return 3
+        except RuntimeError as exc:
+            print(str(exc), file=sys.stderr)
+            return 4
+        except ValueError as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
+        print(f"rosbag exported: {bag_dir}")
 
     print(f"replay artifacts valid: {run_dir}")
     return 0
@@ -485,163 +567,17 @@ def bench_command(args: argparse.Namespace) -> int:
 
 
 def _bench_run_suite(args: argparse.Namespace) -> int:
-    suite_dir: Path = args.run
-    try:
-        scenarios = discover_scenarios(suite_dir)
-    except FileNotFoundError as exc:
-        print(str(exc), file=sys.stderr)
-        return 2
-    if not scenarios:
-        print(f"no benchmark scenarios found under {suite_dir}", file=sys.stderr)
-        return 2
-
-    suite_name = suite_dir.name
-    args.output_dir.mkdir(parents=True, exist_ok=True)
-    suite_runs_dir = args.output_dir / suite_name
-    suite_runs_dir.mkdir(parents=True, exist_ok=True)
-
-    include_integration = getattr(args, "include_integration", False)
-    runnable: list[tuple[Path, Scenario]] = []
-    skipped: list[dict[str, Any]] = []
-    for scenario_path in scenarios:
-        scenario = load_scenario(scenario_path)
-        if not include_integration and is_integration_scenario(scenario.raw):
-            skipped.append(
-                {
-                    "scenario_id": scenario.scenario_id,
-                    "scenario_path": str(scenario_path),
-                    "reason": "integration-only (needs external stack); "
-                    "pass --include-integration to run",
-                }
-            )
-            continue
-        runnable.append((scenario_path, scenario))
-
-    for entry in skipped:
-        print(
-            f"benchmark suite '{suite_name}': skipping {entry['scenario_id']} "
-            f"({entry['reason']})",
-            file=sys.stderr,
-        )
-
-    results: list[BenchmarkScenarioResult] = []
-    for scenario_path, scenario in runnable:
-        try:
-            expectation = BenchmarkExpectation.from_scenario_raw(scenario.raw)
-        except ValueError as exc:
-            print(f"{scenario_path}: {exc}", file=sys.stderr)
-            return 2
-
-        rc = main(
-            [
-                "run",
-                str(scenario_path),
-                "--fast",
-                "--output-dir",
-                str(suite_runs_dir),
-            ]
-        )
-        if rc != 0:
-            results.append(
-                BenchmarkScenarioResult(
-                    scenario_id=scenario.scenario_id,
-                    scenario_path=str(scenario_path),
-                    seed=scenario.seed,
-                    run_dir="",
-                    passed=False,
-                    failures=[f"gnav run exited with code {rc}"],
-                    expected=dict(expectation.raw),
-                )
-            )
-            continue
-
-        actual_run_dir = _pick_latest_run_dir(suite_runs_dir, scenario)
-        metrics = _read_metrics(actual_run_dir)
-        failures = expectation.evaluate(metrics)
-        results.append(
-            BenchmarkScenarioResult(
-                scenario_id=scenario.scenario_id,
-                scenario_path=str(scenario_path),
-                seed=scenario.seed,
-                run_dir=str(actual_run_dir),
-                passed=not failures,
-                failures=failures,
-                metrics=metrics,
-                expected=dict(expectation.raw),
-            )
-        )
-
-    report = BenchmarkSuiteReport(
-        benchmark_suite=suite_name,
-        ran_at=now_iso(),
-        scenarios=results,
-        skipped=skipped,
+    return run_benchmark_suite(
+        args.run,
+        args.output_dir,
+        args.report,
+        include_integration=getattr(args, "include_integration", False),
+        run_command=main,
     )
-    report_path = args.report or (args.output_dir / f"{suite_name}_report.json")
-    write_json(report_path, report.to_dict())
-    skipped_note = f", {len(skipped)} skipped" if skipped else ""
-    print(
-        f"benchmark suite '{suite_name}': "
-        f"{report.passed}/{report.total} passed{skipped_note} -> {report_path}"
-    )
-    for result in results:
-        if not result.passed:
-            print(
-                f"  FAIL {result.scenario_id}: {'; '.join(result.failures)} "
-                f"(run_dir={result.run_dir or 'n/a'})",
-                file=sys.stderr,
-            )
-    return 0 if report.failed == 0 else 1
-
-
-def _pick_latest_run_dir(suite_runs_dir: Path, scenario: Scenario) -> Path:
-    candidates = sorted(
-        p
-        for p in suite_runs_dir.iterdir()
-        if p.is_dir() and p.name.endswith(f"_{scenario.scenario_id}_seed{scenario.seed}")
-    )
-    if not candidates:
-        raise FileNotFoundError(
-            f"could not locate run directory for {scenario.scenario_id}"
-        )
-    return candidates[-1]
-
-
-def _read_metrics(run_dir: Path) -> dict[str, Any]:
-    path = run_dir / "metrics.json"
-    if not path.exists():
-        return {}
-    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def doctor_command(args: argparse.Namespace) -> int:
-    del args
-    checks: list[tuple[str, bool, str]] = [
-        ("python", True, ""),
-        ("yaml", True, ""),
-        (
-            "rclpy",
-            importlib.util.find_spec("rclpy") is not None,
-            "install ROS 2 (jazzy/humble) and `source /opt/ros/<distro>/setup.bash` before --ros",
-        ),
-        (
-            "genesis_nav_msgs",
-            importlib.util.find_spec("genesis_nav_msgs") is not None,
-            "colcon build --base-paths ros2_ws/src --packages-select genesis_nav_msgs",
-        ),
-        (
-            "genesis",
-            importlib.util.find_spec("genesis") is not None,
-            "pip install genesis-world  # required for --backend genesis",
-        ),
-    ]
-    for name, ok, hint in checks:
-        status = "ok" if ok else "missing"
-        line = f"{name}: {status}"
-        if not ok and hint:
-            line += f"  ({hint})"
-        print(line)
-    return 0
+    return run_doctor(as_json=bool(args.json))
 
 
 def create_run_dir(root: Path, scenario: Scenario) -> Path:
@@ -675,6 +611,14 @@ def write_report(path: Path, scenario: Scenario, metrics: MetricsSnapshot) -> No
         f"- agents: `{len(scenario.agents)}`",
         f"- tasks: `{len(scenario.tasks)}`",
         f"- success_rate: `{metrics.success_rate}`",
+        *(
+            [
+                f"- success_rate_ci_95: `[{metrics.success_rate_ci['low']:.3f}, "
+                f"{metrics.success_rate_ci['high']:.3f}]`"
+            ]
+            if metrics.success_rate_ci is not None
+            else []
+        ),
         f"- tasks_succeeded: `{metrics.task_succeeded_count}`",
         f"- tasks_failed: `{metrics.task_failed_count}`",
         f"- time_to_goal_mean_sec: `{metrics.time_to_goal_mean_sec:.3f}`",

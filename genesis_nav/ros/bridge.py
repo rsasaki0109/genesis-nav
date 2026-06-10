@@ -108,6 +108,7 @@ class RosBridge:
         # Optional callable returning a DiagnosticsReport (wired to
         # Runtime.diagnostics); None until set_diagnostics_provider is called.
         self._diagnostics_provider: Callable[[], Any] | None = None
+        self._bag_recorder: Any | None = None
 
         if not rclpy.ok():
             rclpy.init()
@@ -218,6 +219,7 @@ class RosBridge:
         msg.clock.sec = seconds
         msg.clock.nanosec = max(0, int(round((sim_time_sec - seconds) * 1e9)))
         self._clock_pub.publish(msg)
+        self._record("/clock", msg, sim_time_sec)
 
     def publish_states(self, sim_time_sec: float) -> None:
         for state in self.registry.list_states():
@@ -248,6 +250,7 @@ class RosBridge:
         msg.recording = bool(recording)
         msg.state_json = json.dumps(extra or {}, sort_keys=True)
         self._scenario_pub.publish(msg)
+        self._record("/genesis_nav/scenario_state", msg, sim_time_sec)
 
     def publish_fleet_state(
         self,
@@ -269,6 +272,7 @@ class RosBridge:
         msg.completed_task_count = int(completed)
         msg.state_json = json.dumps(extra or {}, sort_keys=True)
         self._fleet_pub.publish(msg)
+        self._record("/genesis_nav/fleet_state", msg, sim_time_sec)
 
     # ----------------------------------------------------------- diagnostics
 
@@ -282,6 +286,11 @@ class RosBridge:
         """
 
         self._diagnostics_provider = provider
+
+    def set_rosbag_recorder(self, recorder: Any | None) -> None:
+        """Register a :class:`RosbagRecorder` to mirror published topics."""
+
+        self._bag_recorder = recorder
 
     def publish_diagnostics(self, sim_time_sec: float) -> None:
         """Publish a `DiagnosticArray` (one `DiagnosticStatus` per agent).
@@ -315,6 +324,7 @@ class RosBridge:
             ]
             msg.status.append(status)
         self._diagnostics_pub.publish(msg)
+        self._record("/genesis_nav/diagnostics", msg, sim_time_sec)
 
     # ------------------------------------------------------------- EventSink
 
@@ -336,6 +346,7 @@ class RosBridge:
         msg.task_id = task_id
         msg.data_json = json.dumps(data or {}, sort_keys=True)
         self._events_pub.publish(msg)
+        self._record("/genesis_nav/events", msg, ts)
 
     # ----------------------------------------------------------- spin/shutdown
 
@@ -391,7 +402,9 @@ class RosBridge:
         msg.emergency_stopped = bool(state.emergency_stopped)
         msg.capabilities = list(state.capabilities)
         del base_frame  # consumed by tf instead
+        topic = f"{state.namespace.rstrip('/')}/{self.config.state_topic}"
         self._state_pubs[state.agent_id].publish(msg)
+        self._record(topic, msg, sim_time_sec)
 
     def _publish_agent_odom(self, state: AgentState, sim_time_sec: float) -> None:
         msg = self._Odometry()
@@ -408,7 +421,9 @@ class RosBridge:
         msg.pose.pose.orientation.w = qw
         msg.twist.twist.linear.x = float(state.linear_velocity_x)
         msg.twist.twist.angular.z = float(state.angular_velocity_z)
+        topic = f"{state.namespace.rstrip('/')}/{self.config.odom_topic}"
         self._odom_pubs[state.agent_id].publish(msg)
+        self._record(topic, msg, sim_time_sec)
 
     def _publish_dynamic_tf(self, state: AgentState, sim_time_sec: float) -> None:
         _map_frame, odom_frame, base_frame = self._frames_by_agent[state.agent_id]
@@ -424,6 +439,11 @@ class RosBridge:
         tf.transform.rotation.z = qz
         tf.transform.rotation.w = qw
         self._tf_broadcaster.sendTransform(tf)
+        from tf2_msgs.msg import TFMessage
+
+        tf_msg = TFMessage()
+        tf_msg.transforms = [tf]
+        self._record("/tf", tf_msg, sim_time_sec)
 
     def _publish_static_tf(self, agent_id: str, map_frame: str, odom_frame: str) -> None:
         del agent_id
@@ -433,6 +453,11 @@ class RosBridge:
         tf.child_frame_id = odom_frame
         tf.transform.rotation.w = 1.0
         self._tf_static_broadcaster.sendTransform(tf)
+        from tf2_msgs.msg import TFMessage
+
+        tf_msg = TFMessage()
+        tf_msg.transforms = [tf]
+        self._record("/tf_static", tf_msg, sim_time_sec)
 
     # ------------------------------------------------------------- cmd_vel
 
@@ -453,6 +478,11 @@ class RosBridge:
             self.external_command_count += 1
         else:
             self.external_command_reject_count += 1
+
+    def _record(self, topic: str, msg: Any, sim_time_sec: float) -> None:
+        if self._bag_recorder is None:
+            return
+        self._bag_recorder.write(topic, msg, sim_time_sec)
 
 
 def _yaw_to_quat(yaw: float) -> tuple[float, float, float, float]:

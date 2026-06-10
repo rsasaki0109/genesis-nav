@@ -125,6 +125,7 @@ class Dispatcher:
             agent_id=agent_id,
             priority=task.priority,
             goal=task.goal,
+            dwell_sec=task.dwell_sec,
             constraints=task.constraints,
             requester_id=task.requester_id,
             trace_id=task.trace_id,

@@ -28,6 +28,7 @@ class OccupancyGrid:
     origin_x: float
     origin_y: float
     data: tuple[tuple[bool, ...], ...]
+    inflate_cells: int = 0
 
     @classmethod
     def from_mapping(cls, raw: dict[str, Any]) -> "OccupancyGrid":
@@ -47,6 +48,11 @@ class OccupancyGrid:
         origin = raw.get("origin", [0.0, 0.0])
         if not isinstance(origin, list | tuple) or len(origin) != 2:
             raise ValueError("occupancy_grid.origin must be [x, y]")
+        inflate_cells = int(raw.get("inflate_cells", 0))
+        if inflate_cells < 0:
+            raise ValueError("occupancy_grid.inflate_cells must be >= 0")
+        if inflate_cells > 0:
+            rows = _inflate_data(rows, inflate_cells)
         return cls(
             width=width,
             height=height,
@@ -54,6 +60,7 @@ class OccupancyGrid:
             origin_x=float(origin[0]),
             origin_y=float(origin[1]),
             data=rows,
+            inflate_cells=inflate_cells,
         )
 
     def in_bounds(self, col: int, row: int) -> bool:
@@ -87,6 +94,10 @@ class OccupancyGrid:
         block = {(c, r) for c, r in cells if self.in_bounds(c, r)}
         if not block:
             return self
+        if self.inflate_cells > 0:
+            block = _dilate_blocked(
+                block, self.inflate_cells, self.width, self.height
+            )
         rows = [list(row) for row in self.data]
         for col, row in block:
             rows[row][col] = True
@@ -97,6 +108,7 @@ class OccupancyGrid:
             origin_x=self.origin_x,
             origin_y=self.origin_y,
             data=tuple(tuple(r) for r in rows),
+            inflate_cells=self.inflate_cells,
         )
 
 
@@ -260,6 +272,49 @@ def _collinear(
 ) -> bool:
     cross = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
     return abs(cross) <= tol
+
+
+def _dilate_blocked(
+    blocked: set[tuple[int, int]],
+    radius: int,
+    width: int,
+    height: int,
+) -> set[tuple[int, int]]:
+    """Expand blocked cells by ``radius`` using Chebyshev (square) dilation."""
+
+    if radius <= 0:
+        return blocked
+    out = set(blocked)
+    for col, row in blocked:
+        for dc in range(-radius, radius + 1):
+            for dr in range(-radius, radius + 1):
+                c, r = col + dc, row + dr
+                if 0 <= c < width and 0 <= r < height:
+                    out.add((c, r))
+    return out
+
+
+def _inflate_data(
+    rows: tuple[tuple[bool, ...], ...],
+    inflate_cells: int,
+) -> tuple[tuple[bool, ...], ...]:
+    """Return ``rows`` with obstacles dilated by ``inflate_cells``."""
+
+    if inflate_cells <= 0:
+        return rows
+    height = len(rows)
+    width = len(rows[0])
+    blocked = {
+        (col, row)
+        for row in range(height)
+        for col in range(width)
+        if rows[row][col]
+    }
+    inflated = _dilate_blocked(blocked, inflate_cells, width, height)
+    new_rows = [[False] * width for _ in range(height)]
+    for col, row in inflated:
+        new_rows[row][col] = True
+    return tuple(tuple(r) for r in new_rows)
 
 
 def build_planner(scenario_raw: dict[str, Any] | None):

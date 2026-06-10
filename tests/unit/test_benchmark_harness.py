@@ -12,7 +12,9 @@ from genesis_nav.benchmarks.report import (
     discover_scenarios,
     is_integration_scenario,
 )
+from genesis_nav.benchmarks.runner import append_benchmark_report, load_jsonl_events
 from genesis_nav.cli.main import main
+from genesis_nav.observability.events import BENCHMARK_REPORT
 
 
 def test_expectation_min_passes_when_metric_meets_threshold() -> None:
@@ -144,6 +146,12 @@ def test_bench_run_nav_basic_passes(tmp_path: Path) -> None:
         assert scenario["failures"] == []
         assert Path(scenario["run_dir"]).is_dir()
         assert scenario["metrics"]["success_rate"] >= 1.0
+        events = load_jsonl_events(Path(scenario["run_dir"]) / "events.jsonl")
+        assert events[-1]["event"] == BENCHMARK_REPORT
+        assert events[-2]["event"] == "SCENARIO_FINISHED"
+        assert events[-1]["data"]["passed"] is True
+        assert events[-1]["data"]["report_path"] == str(report_path)
+        assert events[-1]["data"]["benchmark_suite"] == "nav_basic"
 
 
 def test_bench_run_multi_agent_passes(tmp_path: Path) -> None:
@@ -221,6 +229,11 @@ def test_bench_run_fails_when_expectation_violated(tmp_path: Path) -> None:
     assert failed["passed"] is False
     assert failed["failures"]
     assert Path(failed["run_dir"]).is_dir()
+    events = load_jsonl_events(Path(failed["run_dir"]) / "events.jsonl")
+    assert events[-1]["event"] == BENCHMARK_REPORT
+    assert events[-1]["data"]["passed"] is False
+    assert events[-1]["data"]["failures"]
+    assert main(["replay", failed["run_dir"]]) == 0
 
 
 def test_bench_validate_single_scenario_still_works(
@@ -266,3 +279,34 @@ def test_benchmark_suite_report_aggregates_passed_failed() -> None:
     assert d["passed"] == 1
     assert d["failed"] == 1
     assert d["scenarios"][1]["failures"] == ["nope"]
+
+
+def test_append_benchmark_report_requires_scenario_finished(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    events_path = run_dir / "events.jsonl"
+    events_path.write_text(
+        json.dumps(
+            {
+                "ts": 1.0,
+                "episode_id": "ep1",
+                "event": "SCENARIO_STARTED",
+                "agent_id": "",
+                "task_id": "",
+                "data": {},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    report_path = tmp_path / "suite_report.json"
+    append_benchmark_report(
+        run_dir,
+        benchmark_suite="test_suite",
+        passed=True,
+        failures=[],
+        report_path=report_path,
+    )
+    events = load_jsonl_events(events_path)
+    assert len(events) == 1
+    assert events[0]["event"] == "SCENARIO_STARTED"
